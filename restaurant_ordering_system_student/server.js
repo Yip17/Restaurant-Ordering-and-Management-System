@@ -4,8 +4,6 @@ const bodyParser = require('body-parser');
 const path = require('path');
 require('dotenv').config();
 
-const authRoutes = require('./routes/auth');
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -20,14 +18,26 @@ app.use(session({
     saveUninitialized: false,
 }));
 
-//serve static assets only 
-app.use(express.static('public'));
-//Mount auth routes at the ROOT
-app.use('/', require('./routes/auth'));
+// Serve static files from public/
+app.use(express.static(path.join(__dirname, 'public')));
 
-app.use('/dashboard', require('./routes/dashboard'));
-app.use('/products', require('./routes/products'));
-app.use('/member', require('./routes/productsPage'));
+// Auth routes (login, register, logout) — mounted at root
+app.use('/', require('./src/routes/auth'));
+
+// Dashboard — admin only
+app.use('/dashboard', require('./src/routes/dashboard'));
+
+// Product JSON API
+app.use('/products', require('./src/routes/products'));
+
+// Member HTML pages (products list, product detail)
+app.use('/member', require('./src/routes/productsPage'));
+
+// Feedback routes (view, create, edit feedback + responses)
+app.use('/feedback', require('./src/routes/feedback'));
+
+// Internal API (dashboard data, auth status)
+app.use('/api', require('./src/routes/api'));
 
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
