@@ -16,9 +16,15 @@ const ResponseController      = require('../controllers/responseController');
 // 1. STATIC HTML PAGES  (no params — must be first)
 // =============================================================================
 
-// GET /feedback/create
+// GET /feedback/create — write new feedback form
 router.get('/create', ensureAuthenticated, (req, res) => {
     res.sendFile(path.join(__dirname, '../../public/feedback/create.html'));
+});
+
+// GET /feedback/my-feedback — member's own feedback management page (HTML)
+// Must be before any :param routes so Express doesn't swallow "my-feedback" as a productId.
+router.get('/my-feedback', ensureAuthenticated, (req, res) => {
+    res.sendFile(path.join(__dirname, '../../public/feedback/my-feedback.html'));
 });
 
 // =============================================================================
