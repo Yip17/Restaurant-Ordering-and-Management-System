@@ -33,6 +33,9 @@ app.use('/products', require('./src/routes/products'));
 // Member HTML pages (products list, product detail)
 app.use('/member', require('./src/routes/productsPage'));
 
+// Order routes (place order, view my orders, update status)
+app.use('/orders', require('./src/routes/orders'));
+
 // Feedback routes (view, create, edit feedback + responses)
 app.use('/feedback', require('./src/routes/feedback'));
 

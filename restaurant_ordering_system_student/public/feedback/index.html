@@ -8,18 +8,49 @@
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-  <!-- TODO: Navbar with logout -->
+
+  <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <div class="container">
+      <a class="navbar-brand" href="#">Restaurant Ordering System</a>
+      <div class="navbar-nav ms-auto align-items-center">
+        <span class="navbar-text me-3" id="nav-username">Welcome</span>
+        <a href="/logout" class="btn btn-outline-light btn-sm">Logout</a>
+      </div>
+    </div>
+  </nav>
 
   <main class="container mt-4">
-    <!-- TODO: Display product name and all feedback entries for that product -->
-    <!-- TODO: Each feedback shows: rating (stars), comment, author, date -->
-    <!-- TODO: If feedback belongs to logged-in user: show Edit / Delete buttons -->
-    <!-- TODO: If feedback does NOT belong to logged-in user: show Respond button -->
-    <!-- TODO: Under each feedback, list all responses with Delete button for own responses -->
-    <!-- TODO: "Write Feedback" button (only shown if user has a COMPLETED order for this product) -->
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <a id="back-btn" href="/member/products" class="btn btn-outline-secondary btn-sm">
+        ← Back to Product
+      </a>
+      <!-- Write Feedback button — always visible; eligibility enforced on the form page -->
+      <a id="write-feedback-btn" href="#" class="btn btn-primary btn-sm">
+        Write Feedback
+      </a>
+    </div>
+
+    <h4 class="mb-3" id="product-title">Feedback</h4>
+
+    <div id="error-message" class="alert alert-danger" style="display: none;"></div>
+
+    <div id="loading" class="text-center py-5">
+      <div class="spinner-border text-secondary" role="status">
+        <span class="visually-hidden">Loading…</span>
+      </div>
+    </div>
+
+    <div id="no-feedback" class="alert alert-info" style="display: none;">
+      No feedback yet for this product.
+    </div>
+
+    <div id="feedback-list"></div>
+
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-  <!-- TODO: fetch feedback list from API and render dynamically -->
+  <script src="/js/main.js"></script>
+  <script src="/js/feedback.js"></script>
 </body>
 </html>

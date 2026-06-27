@@ -8,17 +8,69 @@
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-  <!-- TODO: Navbar with logout -->
+
+  <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <div class="container">
+      <a class="navbar-brand" href="#">Restaurant Ordering System</a>
+      <div class="navbar-nav ms-auto align-items-center">
+        <span class="navbar-text me-3" id="nav-username">Welcome</span>
+        <a href="/logout" class="btn btn-outline-light btn-sm">Logout</a>
+      </div>
+    </div>
+  </nav>
 
   <main class="container mt-4">
-    <!-- TODO: Form to submit feedback for a product -->
-    <!-- Fields: rating (1-5 stars), comment (text) -->
-    <!-- Hidden field: product_id (from URL query param) -->
-    <!-- Submit: POST /feedback -->
-    <!-- Cancel: back to /feedback/:productId -->
+
+    <div class="mb-3">
+      <a id="back-btn" href="#" class="btn btn-outline-secondary btn-sm">
+        ← Back to Feedback
+      </a>
+    </div>
+
+    <!-- Shown if not eligible (no completed order, or already reviewed) -->
+    <div id="not-eligible-msg" class="alert alert-warning" style="display: none;"></div>
+
+    <div id="error-message" class="alert alert-danger" style="display: none;"></div>
+
+    <div id="form-card" class="card">
+      <div class="card-body">
+        <h4 class="card-title" id="form-title">Write Feedback</h4>
+
+        <form id="create-feedback-form">
+          <input type="hidden" id="product-id">
+
+          <div class="mb-3">
+            <label for="rating" class="form-label">Rating <span class="text-danger">*</span></label>
+            <select class="form-select" id="rating" required>
+              <option value="" disabled selected>Select a rating</option>
+              <option value="1">1 ★ — Poor</option>
+              <option value="2">2 ★ — Fair</option>
+              <option value="3">3 ★ — Good</option>
+              <option value="4">4 ★ — Very Good</option>
+              <option value="5">5 ★ — Excellent</option>
+            </select>
+          </div>
+
+          <div class="mb-3">
+            <label for="comment" class="form-label">Comment <span class="text-danger">*</span></label>
+            <textarea class="form-control" id="comment" rows="4"
+                      placeholder="Share your experience with this product…"
+                      required></textarea>
+          </div>
+
+          <div class="d-flex gap-2">
+            <button type="submit" id="submit-btn" class="btn btn-primary">Submit Feedback</button>
+            <a id="cancel-btn" href="#" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+        </form>
+
+      </div>
+    </div>
+
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-  <!-- TODO: handle form submission via fetch POST /feedback -->
+  <script src="/js/main.js"></script>
+  <script src="/js/feedback.js"></script>
 </body>
 </html>

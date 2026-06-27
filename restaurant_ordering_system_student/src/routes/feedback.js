@@ -1,41 +1,78 @@
 // routes/feedback.js
-// All feedback and response routes.
-// HTML pages are served from public/feedback/
-// All routes require authentication (ensureAuthenticated)
+// Mounted at /feedback in server.js.
+//
+// CRITICAL ORDERING RULE: Express matches routes top-to-bottom.
+// All static string paths (/create, /my, /responses/:id) MUST be registered
+// BEFORE any parameterised paths (/:id, /:productId) or Express will swallow them.
 
-const express = require('express');
-const path = require('path');
-const router = express.Router();
+const express  = require('express');
+const path     = require('path');
+const router   = express.Router();
 const { ensureAuthenticated } = require('../middleware/auth');
-const FeedbackController = require('../controllers/feedbackController');
-const ResponseController = require('../controllers/responseController');
+const FeedbackController      = require('../controllers/feedbackController');
+const ResponseController      = require('../controllers/responseController');
 
-// --- Feedback HTML pages ---
+// =============================================================================
+// 1. STATIC HTML PAGES  (no params — must be first)
+// =============================================================================
 
-// GET /feedback/:productId — feedback listing page for a product
-router.get('/:productId', ensureAuthenticated, (req, res) => {
-    res.sendFile(path.join(__dirname, '../../public/feedback/index.html'));
-});
-
-// GET /feedback/create — create feedback page
+// GET /feedback/create
 router.get('/create', ensureAuthenticated, (req, res) => {
     res.sendFile(path.join(__dirname, '../../public/feedback/create.html'));
 });
 
-// GET /feedback/:id/edit — edit feedback page
+// =============================================================================
+// 2. STATIC API PATHS  (fixed string segments — before any :param routes)
+// =============================================================================
+
+// GET  /feedback/my  — logged-in member's own feedback list
+router.get('/my', ensureAuthenticated, FeedbackController.index);
+
+// POST /feedback  — submit new feedback
+router.post('/', ensureAuthenticated, FeedbackController.create);
+
+// DELETE /feedback/responses/:id  — delete own response
+// "responses" is a fixed string so it must come before /:id
+router.delete('/responses/:id', ensureAuthenticated, ResponseController.delete);
+
+// =============================================================================
+// 3. PARAMETERISED ROUTES with a fixed second segment  e.g. /:id/edit
+//    These beat the bare /:productId catch-all because they are more specific.
+// =============================================================================
+
+// GET  /feedback/:id/edit         — serve edit feedback page
 router.get('/:id/edit', ensureAuthenticated, (req, res) => {
     res.sendFile(path.join(__dirname, '../../public/feedback/edit.html'));
 });
 
-// --- Feedback JSON API ---
+// GET  /feedback/:productId/all         — all feedback for a product (JSON)
+router.get('/:productId/all', ensureAuthenticated, FeedbackController.getByProduct);
 
-// TODO: POST /feedback — create new feedback
-// TODO: PUT /feedback/:id — update feedback
-// TODO: DELETE /feedback/:id — delete feedback
+// GET  /feedback/:productId/eligibility — can logged-in member write feedback? (JSON)
+router.get('/:productId/eligibility', ensureAuthenticated, FeedbackController.getEligibility);
 
-// --- Response JSON API ---
+// GET  /feedback/:feedbackId/detail     — single feedback entry for edit pre-population (JSON)
+router.get('/:feedbackId/detail', ensureAuthenticated, FeedbackController.getById);
 
-// TODO: POST /feedback/:feedbackId/responses — create response
-// TODO: DELETE /responses/:id — delete response
+// GET  /feedback/:feedbackId/responses  — list responses for one feedback (JSON)
+router.get('/:feedbackId/responses', ensureAuthenticated, ResponseController.getByFeedback);
+
+// POST /feedback/:feedbackId/responses  — submit a response
+router.post('/:feedbackId/responses', ensureAuthenticated, ResponseController.create);
+
+// PUT  /feedback/:id  — update own feedback
+router.put('/:id', ensureAuthenticated, FeedbackController.update);
+
+// DELETE /feedback/:id  — delete own feedback
+router.delete('/:id', ensureAuthenticated, FeedbackController.delete);
+
+// =============================================================================
+// 4. BARE PARAM CATCH-ALL  — must be absolutely last GET
+// =============================================================================
+
+// GET /feedback/:productId  — serve feedback listing page for a product
+router.get('/:productId', ensureAuthenticated, (req, res) => {
+    res.sendFile(path.join(__dirname, '../../public/feedback/index.html'));
+});
 
 module.exports = router;

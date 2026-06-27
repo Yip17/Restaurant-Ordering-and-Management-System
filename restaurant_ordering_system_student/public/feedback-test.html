@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Feedback API Test</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+
+<nav class="navbar navbar-dark bg-dark mb-4">
+  <div class="container">
+    <span class="navbar-brand">Feedback API Test Panel</span>
+    <a href="/logout" class="btn btn-outline-light btn-sm">Logout</a>
+  </div>
+</nav>
+
+<div class="container pb-5">
+
+  <!-- ── Auth Status ─────────────────────────────────────────── -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <h6 class="card-title">Session / Auth Status</h6>
+      <button class="btn btn-secondary btn-sm" onclick="call('GET','/api/auth/status',null,'auth-out')">
+        GET /api/auth/status
+      </button>
+      <pre id="auth-out" class="mt-2 bg-white border rounded p-2" style="min-height:40px"></pre>
+    </div>
+  </div>
+
+  <!-- ── GET /feedback/my ────────────────────────────────────── -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <h6 class="card-title">GET /feedback/my — my own feedback</h6>
+      <button class="btn btn-primary btn-sm" onclick="call('GET','/feedback/my',null,'my-out')">
+        Send
+      </button>
+      <pre id="my-out" class="mt-2 bg-white border rounded p-2" style="min-height:40px"></pre>
+    </div>
+  </div>
+
+  <!-- ── GET /feedback/:productId/all ───────────────────────── -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <h6 class="card-title">GET /feedback/:productId/all — all feedback for a product</h6>
+      <div class="input-group input-group-sm mb-2" style="max-width:300px">
+        <span class="input-group-text">productId</span>
+        <input type="number" id="all-product-id" class="form-control" value="1">
+      </div>
+      <button class="btn btn-primary btn-sm"
+              onclick="call('GET',`/feedback/${v('all-product-id')}/all`,null,'all-out')">
+        Send
+      </button>
+      <pre id="all-out" class="mt-2 bg-white border rounded p-2" style="min-height:40px"></pre>
+    </div>
+  </div>
+
+  <!-- ── GET /feedback/:productId/eligibility ───────────────── -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <h6 class="card-title">GET /feedback/:productId/eligibility</h6>
+      <div class="input-group input-group-sm mb-2" style="max-width:300px">
+        <span class="input-group-text">productId</span>
+        <input type="number" id="elig-product-id" class="form-control" value="1">
+      </div>
+      <button class="btn btn-primary btn-sm"
+              onclick="call('GET',`/feedback/${v('elig-product-id')}/eligibility`,null,'elig-out')">
+        Send
+      </button>
+      <pre id="elig-out" class="mt-2 bg-white border rounded p-2" style="min-height:40px"></pre>
+    </div>
+  </div>
+
+  <!-- ── POST /feedback ─────────────────────────────────────── -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <h6 class="card-title">POST /feedback — create feedback</h6>
+      <div class="row g-2 mb-2">
+        <div class="col-auto">
+          <input type="number" id="create-order-item-id" class="form-control form-control-sm"
+                 placeholder="order_item_id">
+        </div>
+        <div class="col-auto">
+          <input type="number" id="create-rating" class="form-control form-control-sm"
+                 placeholder="rating (1-5)" min="1" max="5">
+        </div>
+        <div class="col-auto">
+          <input type="text" id="create-comment" class="form-control form-control-sm"
+                 placeholder="comment (optional)">
+        </div>
+      </div>
+      <button class="btn btn-success btn-sm" onclick="createFeedback()">Send</button>
+      <pre id="create-out" class="mt-2 bg-white border rounded p-2" style="min-height:40px"></pre>
+    </div>
+  </div>
+
+  <!-- ── GET /feedback/:feedbackId/detail ───────────────────── -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <h6 class="card-title">GET /feedback/:feedbackId/detail — single feedback (edit pre-load)</h6>
+      <div class="input-group input-group-sm mb-2" style="max-width:300px">
+        <span class="input-group-text">feedbackId</span>
+        <input type="number" id="detail-feedback-id" class="form-control" value="1">
+      </div>
+      <button class="btn btn-primary btn-sm"
+              onclick="call('GET',`/feedback/${v('detail-feedback-id')}/detail`,null,'detail-out')">
+        Send
+      </button>
+      <pre id="detail-out" class="mt-2 bg-white border rounded p-2" style="min-height:40px"></pre>
+    </div>
+  </div>
+
+  <!-- ── PUT /feedback/:id ──────────────────────────────────── -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <h6 class="card-title">PUT /feedback/:id — update feedback</h6>
+      <div class="row g-2 mb-2">
+        <div class="col-auto">
+          <input type="number" id="update-feedback-id" class="form-control form-control-sm"
+                 placeholder="feedbackId">
+        </div>
+        <div class="col-auto">
+          <input type="number" id="update-rating" class="form-control form-control-sm"
+                 placeholder="new rating (1-5)" min="1" max="5">
+        </div>
+        <div class="col-auto">
+          <input type="text" id="update-comment" class="form-control form-control-sm"
+                 placeholder="new comment">
+        </div>
+      </div>
+      <button class="btn btn-warning btn-sm" onclick="updateFeedback()">Send</button>
+      <pre id="update-out" class="mt-2 bg-white border rounded p-2" style="min-height:40px"></pre>
+    </div>
+  </div>
+
+  <!-- ── DELETE /feedback/:id ───────────────────────────────── -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <h6 class="card-title">DELETE /feedback/:id — delete feedback</h6>
+      <div class="input-group input-group-sm mb-2" style="max-width:300px">
+        <span class="input-group-text">feedbackId</span>
+        <input type="number" id="delete-feedback-id" class="form-control">
+      </div>
+      <button class="btn btn-danger btn-sm" onclick="deleteFeedback()">Send</button>
+      <pre id="delete-out" class="mt-2 bg-white border rounded p-2" style="min-height:40px"></pre>
+    </div>
+  </div>
+
+  <!-- ── GET /feedback/:feedbackId/responses ────────────────── -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <h6 class="card-title">GET /feedback/:feedbackId/responses</h6>
+      <div class="input-group input-group-sm mb-2" style="max-width:300px">
+        <span class="input-group-text">feedbackId</span>
+        <input type="number" id="get-responses-feedback-id" class="form-control" value="1">
+      </div>
+      <button class="btn btn-primary btn-sm"
+              onclick="call('GET',`/feedback/${v('get-responses-feedback-id')}/responses`,null,'get-responses-out')">
+        Send
+      </button>
+      <pre id="get-responses-out" class="mt-2 bg-white border rounded p-2" style="min-height:40px"></pre>
+    </div>
+  </div>
+
+  <!-- ── POST /feedback/:feedbackId/responses ───────────────── -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <h6 class="card-title">POST /feedback/:feedbackId/responses — create response</h6>
+      <div class="row g-2 mb-2">
+        <div class="col-auto">
+          <input type="number" id="create-response-feedback-id" class="form-control form-control-sm"
+                 placeholder="feedbackId">
+        </div>
+        <div class="col-auto">
+          <input type="text" id="create-response-text" class="form-control form-control-sm"
+                 placeholder="response text">
+        </div>
+      </div>
+      <button class="btn btn-success btn-sm" onclick="createResponse()">Send</button>
+      <pre id="create-response-out" class="mt-2 bg-white border rounded p-2" style="min-height:40px"></pre>
+    </div>
+  </div>
+
+  <!-- ── DELETE /feedback/responses/:id ─────────────────────── -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <h6 class="card-title">DELETE /feedback/responses/:id — delete response</h6>
+      <div class="input-group input-group-sm mb-2" style="max-width:300px">
+        <span class="input-group-text">responseId</span>
+        <input type="number" id="delete-response-id" class="form-control">
+      </div>
+      <button class="btn btn-danger btn-sm" onclick="deleteResponse()">Send</button>
+      <pre id="delete-response-out" class="mt-2 bg-white border rounded p-2" style="min-height:40px"></pre>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<script>
+  // Read value from an input by ID
+  function v(id) { return document.getElementById(id).value.trim(); }
+
+  // Generic fetch helper — prints result to a <pre>
+  async function call(method, url, body, outId) {
+    const out = document.getElementById(outId);
+    out.textContent = 'Loading...';
+    try {
+      const opts = { method, headers: {} };
+      if (body) {
+        opts.headers['Content-Type'] = 'application/json';
+        opts.body = JSON.stringify(body);
+      }
+      const res  = await fetch(url, opts);
+      const data = await res.json();
+      out.textContent = `HTTP ${res.status}\n` + JSON.stringify(data, null, 2);
+    } catch (err) {
+      out.textContent = 'Error: ' + err.message;
+    }
+  }
+
+  function createFeedback() {
+    call('POST', '/feedback', {
+      order_item_id: parseInt(v('create-order-item-id'), 10),
+      rating:        parseInt(v('create-rating'), 10),
+      comment:       v('create-comment') || null
+    }, 'create-out');
+  }
+
+  function updateFeedback() {
+    const id = v('update-feedback-id');
+    call('PUT', `/feedback/${id}`, {
+      rating:  parseInt(v('update-rating'), 10),
+      comment: v('update-comment') || null
+    }, 'update-out');
+  }
+
+  function deleteFeedback() {
+    const id = v('delete-feedback-id');
+    call('DELETE', `/feedback/${id}`, null, 'delete-out');
+  }
+
+  function createResponse() {
+    const feedbackId = v('create-response-feedback-id');
+    call('POST', `/feedback/${feedbackId}/responses`, {
+      response_text: v('create-response-text')
+    }, 'create-response-out');
+  }
+
+  function deleteResponse() {
+    const id = v('delete-response-id');
+    call('DELETE', `/feedback/responses/${id}`, null, 'delete-response-out');
+  }
+</script>
+
+</body>
+</html>
