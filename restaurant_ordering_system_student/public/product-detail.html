@@ -25,8 +25,6 @@
 
     <div class="mb-3 d-flex gap-2 flex-wrap">
       <a href="/member/products" class="btn btn-outline-secondary btn-sm">← Back to Menu</a>
-      <a id="view-feedback-btn"  href="#" class="btn btn-outline-primary btn-sm">View Feedback</a>
-      <a id="write-feedback-btn" href="#" class="btn btn-primary btn-sm" style="display:none;">Write Feedback</a>
     </div>
 
     <div id="loading" class="text-center py-5">
@@ -88,32 +86,67 @@
         </div>
       </div>
 
+      <!-- ── Feedback Section ──────────────────────────────────────────── -->
+      <div class="card mb-4" id="feedback-section">
+        <div class="card-body">
+
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="card-title mb-0">Customer Feedback</h5>
+            <!-- Write Feedback button — shown only when member is eligible -->
+            <a id="write-feedback-btn" href="#" class="btn btn-primary btn-sm"
+               style="display:none;">Write Feedback</a>
+          </div>
+
+          <div id="feedback-loading" class="text-center py-3">
+            <div class="spinner-border spinner-border-sm text-secondary" role="status">
+              <span class="visually-hidden">Loading…</span>
+            </div>
+          </div>
+
+          <div id="feedback-error" class="alert alert-danger" style="display:none;"></div>
+
+          <div id="no-feedback" class="alert alert-info mb-0" style="display:none;">
+            No feedback yet for this product. Be the first to review!
+          </div>
+
+          <div id="feedback-list"></div>
+
+        </div>
+      </div>
+
     </div>
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
   <script>
+  // ── State ─────────────────────────────────────────────────────────────────
+  let currentProductId = null;
+  let currentUserId    = null;
+
+  // ── Boot ──────────────────────────────────────────────────────────────────
   document.addEventListener('DOMContentLoaded', async () => {
-    // Show username
+    // Resolve logged-in user once; reused by feedback/response rendering
     try {
       const r = await fetch('/api/auth/status');
       const d = await r.json();
       if (d.authenticated) {
+        currentUserId = d.user.id;
         document.getElementById('nav-username').textContent = `Welcome, ${d.user.name}`;
       }
     } catch (_) {}
 
-    fetchProductDetail();
+    await fetchProductDetail();
   });
 
+  // ── Product detail ────────────────────────────────────────────────────────
   async function fetchProductDetail() {
     const params    = new URLSearchParams(window.location.search);
-    const productId = params.get('id');
+    currentProductId = params.get('id');
     const loading   = document.getElementById('loading');
     const errEl     = document.getElementById('error-message');
     const detail    = document.getElementById('product-detail');
 
-    if (!productId) {
+    if (!currentProductId) {
       loading.style.display = 'none';
       errEl.style.display   = 'block';
       errEl.textContent     = 'No product specified.';
@@ -121,7 +154,7 @@
     }
 
     try {
-      const res  = await fetch(`/products/${productId}`);
+      const res  = await fetch(`/products/${currentProductId}`);
       const data = await res.json();
       loading.style.display = 'none';
 
@@ -142,75 +175,324 @@
           ${p.is_available ? 'Available' : 'Unavailable'}
         </span>`;
 
-      // Hide order form if product unavailable
       if (!p.is_available) {
         document.getElementById('order-card').style.display = 'none';
       }
 
-      // Wire feedback link
-      document.getElementById('view-feedback-btn').href = `/feedback/${productId}`;
-
-      // Wire Write Feedback button — show only when eligible (completed order, not yet reviewed)
-      try {
-        const eligRes  = await fetch(`/feedback/${productId}/eligibility`);
-        const eligData = await eligRes.json();
-        const writeBtn = document.getElementById('write-feedback-btn');
-        if (eligData.eligible) {
-          writeBtn.href          = `/feedback/create?productId=${productId}`;
-          writeBtn.style.display = '';
-        }
-      } catch (_) {}
-
       detail.style.display = 'block';
 
       // Wire order form
-      document.getElementById('order-form').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const successEl = document.getElementById('order-success');
-        const errorEl   = document.getElementById('order-error');
-        const btn       = document.getElementById('order-btn');
+      document.getElementById('order-form').addEventListener('submit', handleOrderSubmit);
 
-        successEl.style.display = 'none';
-        errorEl.style.display   = 'none';
-        btn.disabled    = true;
-        btn.textContent = 'Placing order…';
-
-        try {
-          const res  = await fetch('/orders', {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              product_id:       productId,
-              quantity:         parseInt(document.getElementById('quantity').value),
-              delivery_address: document.getElementById('delivery-address').value.trim()
-            })
-          });
-          const data = await res.json();
-
-          if (data.success) {
-            successEl.innerHTML = `
-              Order placed! Status: <strong>PACKING</strong>.
-              <a href="/orders/my-orders" class="alert-link ms-2">View My Orders →</a>`;
-            successEl.style.display = 'block';
-            document.getElementById('order-form').reset();
-          } else {
-            errorEl.textContent   = data.message || 'Failed to place order.';
-            errorEl.style.display = 'block';
-          }
-        } catch (_) {
-          errorEl.textContent   = 'An error occurred.';
-          errorEl.style.display = 'block';
-        }
-
-        btn.disabled    = false;
-        btn.textContent = 'Order Now';
-      });
+      // Load feedback section in parallel
+      await loadFeedbackSection();
 
     } catch (err) {
       console.error(err);
       loading.style.display = 'none';
       errEl.style.display   = 'block';
     }
+  }
+
+  // ── Order form ────────────────────────────────────────────────────────────
+  async function handleOrderSubmit(e) {
+    e.preventDefault();
+    const successEl = document.getElementById('order-success');
+    const errorEl   = document.getElementById('order-error');
+    const btn       = document.getElementById('order-btn');
+
+    successEl.style.display = 'none';
+    errorEl.style.display   = 'none';
+    btn.disabled    = true;
+    btn.textContent = 'Placing order…';
+
+    try {
+      const res  = await fetch('/orders', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          product_id:       currentProductId,
+          quantity:         parseInt(document.getElementById('quantity').value),
+          delivery_address: document.getElementById('delivery-address').value.trim()
+        })
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        successEl.innerHTML = `Order placed! Status: <strong>PACKING</strong>.
+          <a href="/orders/my-orders" class="alert-link ms-2">View My Orders →</a>`;
+        successEl.style.display = 'block';
+        document.getElementById('order-form').reset();
+        // Re-check eligibility — completing an order may unlock Write Feedback
+        checkWriteFeedbackEligibility();
+      } else {
+        errorEl.textContent   = data.message || 'Failed to place order.';
+        errorEl.style.display = 'block';
+      }
+    } catch (_) {
+      errorEl.textContent   = 'An error occurred.';
+      errorEl.style.display = 'block';
+    }
+
+    btn.disabled    = false;
+    btn.textContent = 'Order Now';
+  }
+
+  // ── Feedback section ──────────────────────────────────────────────────────
+  async function loadFeedbackSection() {
+    await Promise.all([
+      checkWriteFeedbackEligibility(),
+      loadFeedbackList()
+    ]);
+  }
+
+  // Show "Write Feedback" button only when the member has a completed order
+  // for this product and has not yet reviewed it.
+  // Access control rule: eligibility check via /feedback/:productId/eligibility
+  async function checkWriteFeedbackEligibility() {
+    try {
+      const res  = await fetch(`/feedback/${currentProductId}/eligibility`);
+      const data = await res.json();
+      const btn  = document.getElementById('write-feedback-btn');
+      if (data.eligible) {
+        btn.href          = `/feedback/create?productId=${currentProductId}`;
+        btn.style.display = '';
+      } else {
+        btn.style.display = 'none';
+      }
+    } catch (_) {}
+  }
+
+  // Fetch all feedback for the product and render each card with responses
+  async function loadFeedbackList() {
+    const fbLoading = document.getElementById('feedback-loading');
+    const fbError   = document.getElementById('feedback-error');
+    const noFb      = document.getElementById('no-feedback');
+    const fbList    = document.getElementById('feedback-list');
+
+    fbLoading.style.display = 'block';
+    fbError.style.display   = 'none';
+    noFb.style.display      = 'none';
+    fbList.innerHTML        = '';
+
+    try {
+      // GET /feedback/:productId/all  →  get_feedback_by_product()  [SQL function]
+      const res  = await fetch(`/feedback/${currentProductId}/all`);
+      const data = await res.json();
+
+      fbLoading.style.display = 'none';
+
+      if (!data.success) {
+        fbError.textContent   = data.message || 'Failed to load feedback.';
+        fbError.style.display = 'block';
+        return;
+      }
+
+      if (!data.feedback || data.feedback.length === 0) {
+        noFb.style.display = 'block';
+        return;
+      }
+
+      for (const fb of data.feedback) {
+        // Access control: isOwner determines Edit/Delete visibility and
+        // whether the response form is shown (authors cannot respond to own feedback)
+        const isOwner = currentUserId && Number(fb.member_id) === Number(currentUserId);
+        fbList.appendChild(buildFeedbackCard(fb, isOwner));
+      }
+
+    } catch (_) {
+      fbLoading.style.display = 'none';
+      fbError.textContent     = 'Failed to load feedback.';
+      fbError.style.display   = 'block';
+    }
+  }
+
+  // Build a single feedback card with inline responses
+  function buildFeedbackCard(fb, isOwner) {
+    const card = document.createElement('div');
+    card.className = 'card mb-3';
+    card.id = `feedback-card-${fb.feedback_id}`;
+
+    card.innerHTML = `
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <span class="fw-semibold me-2">${escapeHtml(fb.username || 'Member')}</span>
+            <span>${renderStars(fb.rating)}</span>
+            <small class="text-muted ms-2">${new Date(fb.created_at).toLocaleDateString()}</small>
+          </div>
+          ${isOwner ? `
+            <div class="d-flex gap-2">
+              <a href="/feedback/${fb.feedback_id}/edit?productId=${currentProductId}"
+                 class="btn btn-outline-primary btn-sm">Edit</a>
+              <button class="btn btn-outline-danger btn-sm"
+                      onclick="deleteFeedback(${fb.feedback_id})">Delete</button>
+            </div>` : ''}
+        </div>
+
+        <p class="mt-2 mb-2">
+          ${fb.comment ? escapeHtml(fb.comment) : '<em class="text-muted">No comment.</em>'}
+        </p>
+
+        <!-- Responses — loaded async below -->
+        <div id="responses-${fb.feedback_id}" class="ms-3 mt-2 border-start ps-3">
+          <small class="text-muted">Loading responses…</small>
+        </div>
+
+        <!-- Response form — access control: only non-authors can respond -->
+        ${!isOwner ? `
+          <div class="mt-2">
+            <div class="input-group input-group-sm">
+              <input type="text" class="form-control"
+                     id="response-input-${fb.feedback_id}"
+                     placeholder="Write a response…" maxlength="500">
+              <button class="btn btn-outline-secondary"
+                      onclick="submitResponse(${fb.feedback_id})">Send</button>
+            </div>
+            <div id="response-error-${fb.feedback_id}"
+                 class="text-danger mt-1" style="font-size:0.85rem;"></div>
+          </div>` : ''}
+      </div>`;
+
+    // Kick off async response load — does not block card rendering
+    loadResponses(fb.feedback_id);
+
+    return card;
+  }
+
+  // ── Responses ─────────────────────────────────────────────────────────────
+
+  // GET /feedback/:feedbackId/responses  →  get_response()  [SQL function]
+  async function loadResponses(feedbackId) {
+    const container = document.getElementById(`responses-${feedbackId}`);
+    try {
+      const res  = await fetch(`/feedback/${feedbackId}/responses`);
+      const data = await res.json();
+
+      if (!data.success || data.responses.length === 0) {
+        container.innerHTML = '<small class="text-muted">No responses yet.</small>';
+        return;
+      }
+
+      container.innerHTML = data.responses.map(r => {
+        // Access control: only the response author sees the Delete button
+        const isMine = currentUserId && Number(r.member_id) === Number(currentUserId);
+        return `
+          <div class="d-flex justify-content-between align-items-start mb-1"
+               id="response-row-${r.response_id}">
+            <div>
+              <span class="fw-semibold me-1" style="font-size:0.9rem;">
+                ${escapeHtml(r.username || 'Member')}:
+              </span>
+              <span style="font-size:0.9rem;">${escapeHtml(r.response_text)}</span>
+              <small class="text-muted ms-1">
+                ${new Date(r.created_at).toLocaleDateString()}
+              </small>
+            </div>
+            ${isMine ? `
+              <button class="btn btn-link btn-sm text-danger p-0 ms-2"
+                      onclick="deleteResponse(${r.response_id})">Delete</button>` : ''}
+          </div>`;
+      }).join('');
+
+    } catch (_) {
+      container.innerHTML = '<small class="text-danger">Could not load responses.</small>';
+    }
+  }
+
+  // POST /feedback/:feedbackId/responses  →  create_response()  [SQL procedure]
+  // Access control enforced in procedure: cannot respond to own feedback
+  async function submitResponse(feedbackId) {
+    const input   = document.getElementById(`response-input-${feedbackId}`);
+    const errorEl = document.getElementById(`response-error-${feedbackId}`);
+    const text    = input.value.trim();
+
+    errorEl.textContent = '';
+
+    if (!text) {
+      errorEl.textContent = 'Response cannot be empty.';
+      return;
+    }
+
+    try {
+      const res  = await fetch(`/feedback/${feedbackId}/responses`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ response_text: text })
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        input.value = '';
+        loadResponses(feedbackId);   // Refresh the responses block
+      } else {
+        errorEl.textContent = data.message || 'Failed to submit response.';
+      }
+    } catch (_) {
+      errorEl.textContent = 'An error occurred.';
+    }
+  }
+
+  // DELETE /feedback/responses/:id  →  delete_response()  [SQL procedure]
+  // Access control enforced in procedure: only response owner can delete
+  async function deleteResponse(responseId) {
+    if (!confirm('Delete this response?')) return;
+    try {
+      const res  = await fetch(`/feedback/responses/${responseId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        const row = document.getElementById(`response-row-${responseId}`);
+        if (row) row.remove();
+      } else {
+        alert(data.message || 'Failed to delete response.');
+      }
+    } catch (_) {
+      alert('An error occurred.');
+    }
+  }
+
+  // DELETE /feedback/:id  →  delete_feedback()  [SQL procedure]
+  // Access control enforced in procedure: only feedback owner can delete
+  async function deleteFeedback(feedbackId) {
+    if (!confirm('Delete this feedback? All responses will also be removed.')) return;
+    try {
+      const res  = await fetch(`/feedback/${feedbackId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        const card = document.getElementById(`feedback-card-${feedbackId}`);
+        if (card) card.remove();
+        // Show empty state if no cards remain
+        if (!document.querySelector('#feedback-list .card')) {
+          document.getElementById('no-feedback').style.display = 'block';
+        }
+        // Re-check eligibility — deleting own feedback may re-enable Write Feedback
+        checkWriteFeedbackEligibility();
+      } else {
+        alert(data.message || 'Failed to delete feedback.');
+      }
+    } catch (_) {
+      alert('An error occurred.');
+    }
+  }
+
+  // ── Utilities ─────────────────────────────────────────────────────────────
+  function renderStars(rating) {
+    let html = '';
+    for (let i = 1; i <= 5; i++) {
+      html += `<span class="${i <= rating ? 'text-warning' : 'text-muted'}"
+                     style="font-size:1.1rem;">★</span>`;
+    }
+    return html;
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
   </script>
 </body>
