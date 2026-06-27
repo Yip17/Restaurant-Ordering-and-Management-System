@@ -90,6 +90,8 @@ async function initFeedbackIndex() {
       const isOwner = currentUserId && Number(fb.member_id) === Number(currentUserId);
       const card    = buildFeedbackCard(fb, productId, isOwner, currentUserId);
       feedbackList.appendChild(card);
+      // Load responses AFTER the card is in the DOM so getElementById finds the container
+      loadResponses(fb.feedback_id, currentUserId);
     }
 
   } catch (err) {
@@ -144,9 +146,7 @@ function buildFeedbackCard(fb, productId, isOwner, currentUserId) {
     </div>
   `;
 
-  // Async-load responses into the card
-  loadResponses(fb.feedback_id, currentUserId);
-
+  // Card is returned; caller appends it to the DOM and then calls loadResponses()
   return card;
 }
 

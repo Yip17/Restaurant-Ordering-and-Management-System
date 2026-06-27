@@ -297,7 +297,10 @@
         // Access control: isOwner determines Edit/Delete visibility and
         // whether the response form is shown (authors cannot respond to own feedback)
         const isOwner = currentUserId && Number(fb.member_id) === Number(currentUserId);
-        fbList.appendChild(buildFeedbackCard(fb, isOwner));
+        const card    = buildFeedbackCard(fb, isOwner);
+        fbList.appendChild(card);
+        // Load responses AFTER the card is in the DOM so getElementById finds the container
+        loadResponses(fb.feedback_id);
       }
 
     } catch (_) {
@@ -354,9 +357,7 @@
           </div>` : ''}
       </div>`;
 
-    // Kick off async response load — does not block card rendering
-    loadResponses(fb.feedback_id);
-
+    // Card is returned; caller appends it to the DOM and then calls loadResponses()
     return card;
   }
 
