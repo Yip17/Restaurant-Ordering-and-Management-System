@@ -108,24 +108,22 @@ class SaleOrder {
         return result.rows[0]?.order_item_id;
     }
 
-    // Dashboard summary with optional filters
-    static async getSummary({ startDate, endDate, category, sortBy, sortOrder } = {}) {
-        const validSortColumns = {
-            order_date:    'out_order_date',
-            total_amount:  'out_total_amount',
-            customer_name: 'out_customer_name',
-            status:        'out_status'
-        };
-        const validOrders = ['ASC', 'DESC'];
-        const orderCol = validSortColumns[sortBy]  || 'out_order_date';
-        const orderDir = validOrders.includes((sortOrder || '').toUpperCase())
-            ? sortOrder.toUpperCase() : 'DESC';
-
+    // Dashboard summary — calls get_sale_order_summary (admin-only SQL function).
+    // All filtering, sorting, and aggregation is performed at the database level.
+    static async getSummary({ startDate, endDate, category, status, sortBy, sortOrder } = {}) {
         const result = await pool.query(
-            `SELECT * FROM get_order_summary($1, $2, $3) ORDER BY ${orderCol} ${orderDir}`,
-            [startDate || null, endDate || null, category || null]
+            `SELECT * FROM get_sale_order_summary($1, $2, $3, $4, $5, $6)`,
+            [
+                startDate  || null,
+                endDate    || null,
+                category   || null,
+                status     || null,
+                sortBy     || 'order_date',
+                sortOrder  || 'DESC'
+            ]
         );
-        // Strip "out_" prefix so dashboard JS sees order_id, customer_name, etc.
+        // Strip the "out_" prefix added by the RETURNS TABLE declaration so
+        // downstream code (controller, dashboard JS) sees clean field names.
         return result.rows.map(row => {
             const r = {};
             for (const [k, v] of Object.entries(row)) {

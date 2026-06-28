@@ -1,97 +1,121 @@
 -- =============================================================================
 -- functions_and_stored_procedures.sql
--- =============================================================================
--- All SQL functions and stored procedures for the restaurant ordering system.
--- Safe to re-run: every object uses CREATE OR REPLACE.
+-- Dashboard database function for the admin restaurant management dashboard.
 --
--- Schema reference (verified against live DB):
---   member            : member_id, username, email, password_hash, first_name, last_name, created_at
---   member_role       : member_id, role  ('ADMIN' | 'USER')
---   product           : product_id, name, description, price, category, is_available, created_at
---   sale_order        : order_id, member_id, order_date, total_amount, status, delivery_address
---                       status CHECK: 'COMPLETED' | 'CANCELLED' | 'PACKING'
---   sale_order_item   : order_item_id, order_id, product_id, quantity, unit_price, subtotal
---   feedback          : feedback_id, order_item_id (FK→sale_order_item), member_id,
---                       rating (1-5), comment (NOT NULL), created_at, updated_at
---                       UNIQUE (order_item_id)
---   feedback_response : response_id, feedback_id, member_id, response_text, created_at
+-- WHY A FUNCTION (not a procedure):
+--   get_sale_order_summary is a READ-ONLY operation — it retrieves and
+--   aggregates data but makes no changes to the database.
+--   PostgreSQL STABLE functions are appropriate for read-only queries:
+--     • They return a result set that can be consumed like a table.
+--     • STABLE tells the planner the function will not modify the DB and
+--       returns the same result for the same args within a single query,
+--       allowing query plan optimisations.
+--     • Procedures (CALL) are for write operations with side-effects;
+--       using one here would be semantically wrong.
 --
--- product_id is reached through: feedback → sale_order_item → product
+-- AMBIGUITY NOTE (plpgsql RETURNS TABLE):
+--   Output column names declared in RETURNS TABLE share the function's
+--   variable scope with local table column names.  Every column reference
+--   inside the body is qualified with a table alias (so.xxx, m.xxx …) so
+--   plpgsql always resolves to the table column, never the output variable.
 --
--- ERROR CONVENTION:
---   All procedures RAISE EXCEPTION with ERRCODE 'P0001' (raise_exception).
---   MESSAGE is a JSON string: {"status": <http_code>, "message": "<text>"}
---   Node models parse this and forward the message to the API response.
---   PgAdmin users will see the full JSON error detail directly.
---
--- Run order: feedback_schema.sql first (creates tables), then this file.
+-- Safe to re-run: CREATE OR REPLACE.
+-- Run after restaurant_db_restore.sql (base tables must exist first).
 -- =============================================================================
 
 
--- ---------------------------------------------------------------------------
--- HELPER: raise a structured error readable by both the app and PgAdmin
--- ---------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION raise_error(p_status INTEGER, p_message TEXT)
-RETURNS VOID
-LANGUAGE plpgsql AS $$
+-- =============================================================================
+-- get_sale_order_summary
+-- Retrieves summarised order data for the admin dashboard.
+--
+-- Joins: member ← sale_order ← sale_order_item → product
+--
+-- Supports (all combinable):
+--   Filtering  — p_start_date, p_end_date (date range), p_category (product type),
+--                p_status (order status: PACKING | COMPLETED | CANCELLED)
+--   Sorting    — p_sort_by ('order_date'|'total_amount'|'customer_name'|'status')
+--                combined with p_sort_order ('ASC'|'DESC')
+--   Aggregation — product_count (COUNT of line items),
+--                 products_ordered (comma-separated product names via STRING_AGG)
+--
+-- Passing NULL for any parameter skips that filter.
+--
+-- PgAdmin:
+--   SELECT * FROM get_sale_order_summary(NULL, NULL, NULL, NULL, 'order_date', 'DESC');
+--   SELECT * FROM get_sale_order_summary('2024-01-01','2024-12-31','Pizza',NULL,'total_amount','DESC');
+--   SELECT * FROM get_sale_order_summary(NULL, NULL, NULL, 'COMPLETED', 'order_date', 'ASC');
+-- =============================================================================
+CREATE OR REPLACE FUNCTION get_sale_order_summary(
+    p_start_date  DATE,
+    p_end_date    DATE,
+    p_category    VARCHAR,
+    p_status      VARCHAR,
+    p_sort_by     VARCHAR,
+    p_sort_order  VARCHAR
+)
+RETURNS TABLE (
+    out_order_id         INTEGER,
+    out_customer_name    TEXT,
+    out_order_date       TIMESTAMP,
+    out_total_amount     NUMERIC,
+    out_status           VARCHAR,
+    out_product_count    BIGINT,
+    out_products_ordered TEXT
+)
+LANGUAGE plpgsql STABLE AS $$
+DECLARE
+    -- Whitelist sort column to prevent SQL injection
+    v_sort_col  TEXT;
+    -- Whitelist sort direction
+    v_sort_dir  TEXT;
+    -- Dynamic query string
+    v_sql       TEXT;
 BEGIN
-    RAISE EXCEPTION USING
-        ERRCODE = 'P0001',
-        MESSAGE = format('{"status":%s,"message":"%s"}', p_status, replace(p_message, '"', '\"'));
+    -- ── Validate / whitelist sort column ─────────────────────────────────
+    v_sort_col := CASE p_sort_by
+        WHEN 'total_amount'  THEN 'so.total_amount'
+        WHEN 'customer_name' THEN 'customer_name'
+        WHEN 'status'        THEN 'so.status'
+        ELSE                      'so.order_date'   -- default
+    END;
+
+    -- ── Validate / whitelist sort direction ──────────────────────────────
+    v_sort_dir := CASE UPPER(p_sort_order)
+        WHEN 'ASC' THEN 'ASC'
+        ELSE            'DESC'                       -- default
+    END;
+
+    -- ── Validate status value if provided ────────────────────────────────
+    IF p_status IS NOT NULL AND p_status NOT IN ('PACKING', 'COMPLETED', 'CANCELLED') THEN
+        RAISE EXCEPTION 'INVALID_STATUS: Status must be PACKING, COMPLETED, or CANCELLED.';
+    END IF;
+
+    -- ── Build and execute dynamic SQL ────────────────────────────────────
+    -- Dynamic ORDER BY is the only safe reason to use dynamic SQL here.
+    -- All filter values are still passed as bind parameters ($1-$4) to
+    -- prevent any injection through the filter inputs.
+    v_sql := '
+        SELECT
+            so.order_id,
+            m.first_name || '' '' || m.last_name   AS customer_name,
+            so.order_date,
+            so.total_amount,
+            so.status,
+            COUNT(soi.order_item_id)::BIGINT        AS product_count,
+            STRING_AGG(p.name, '', '' ORDER BY p.name) AS products_ordered
+        FROM sale_order so
+        JOIN member          m   ON m.member_id   = so.member_id
+        JOIN sale_order_item soi ON soi.order_id  = so.order_id
+        JOIN product         p   ON p.product_id  = soi.product_id
+        WHERE ($1::DATE IS NULL OR DATE(so.order_date) >= $1::DATE)
+          AND ($2::DATE IS NULL OR DATE(so.order_date) <= $2::DATE)
+          AND ($3        IS NULL OR p.category           = $3)
+          AND ($4        IS NULL OR so.status            = $4)
+        GROUP BY so.order_id, m.first_name, m.last_name,
+                 so.order_date, so.total_amount, so.status
+        ORDER BY ' || v_sort_col || ' ' || v_sort_dir;
+
+    RETURN QUERY EXECUTE v_sql
+        USING p_start_date, p_end_date, p_category, p_status;
 END;
 $$;
-
-
--- =============================================================================
--- SECTION 1: ORDER FUNCTIONS & PROCEDURES
--- =============================================================================
-
--- ---------------------------------------------------------------------------
--- get_member_orders(p_member_id)
--- Returns all orders for a member with aggregated item details.
--- Called by: SaleOrder.findByMemberId
--- PgAdmin:   SELECT * FROM get_member_orders(2);
--- ---------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION get_member_orders(p_member_id INTEGER)
-RETURNS TABLE (
-    order_id         INTEGER,
-    order_date       TIMESTAMP,
-    total_amount     NUMERIC,
-    status           VARCHAR,
-    delivery_address TEXT,
-    items            JSON
-)
-LANGUAGE sql STABLE AS $$
-    SELECT
-        so.order_id,
-        so.order_date,
-        so.total_amount,
-        so.status,
-        so.delivery_address,
-        json_agg(
-            json_build_object(
-                'order_item_id', soi.order_item_id,
-                'product_id',    soi.product_id,
-                'product_name',  p.name,
-                'quantity',      soi.quantity,
-                'unit_price',    soi.unit_price,
-                'subtotal',      soi.subtotal
-            ) ORDER BY soi.order_item_id
-        ) AS items
-    FROM sale_order so
-    JOIN sale_order_item soi ON soi.order_id  = so.order_id
-    JOIN product p           ON p.product_id  = soi.product_id
-    WHERE so.member_id = p_member_id
-    GROUP BY so.order_id
-    ORDER BY so.order_date DESC;
-$$;
-
-
--- ---------------------------------------------------------------------------
--- place_order(p_member_id, p_product_id, p_quantity, p_delivery_address)
--- Validates, creates a sale_order + sale_order_item in one transaction.
--- Returns the new order_id.
--- Raises P0001 if product not found/unavailable, quantity < 1, or address empty.
--- Called by: SaleOrder.create
--- PgAdmin:   SELECT place_order(2, 1, 2, '123 Main Street');
--

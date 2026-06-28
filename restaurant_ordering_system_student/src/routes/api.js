@@ -23,7 +23,6 @@ router.get('/auth/status', (req, res) => {
 });
 
 // GET /api/dashboard — returns filtered order summary (admin only)
-// TODO: implement DashboardController.index
 router.get('/dashboard', ensureAuthenticated, ensureAdmin, DashboardController.index);
 
 module.exports = router;
