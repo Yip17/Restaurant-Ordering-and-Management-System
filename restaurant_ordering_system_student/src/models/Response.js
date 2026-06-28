@@ -6,27 +6,41 @@
 
 const pool = require('../config/database');
 
-function remapRow(row) {
-    if (!row) return row;
-    const result = {};
-    for (const [key, val] of Object.entries(row)) {
-        result[key.startsWith('out_') ? key.slice(4) : key] = val;
+function remapRow(data) {
+    if (data == null) {
+        return data;
     }
+
+    let result = {};
+
+    for (let key in data) {
+        let newKey = key.replace("out_", "");
+        result[newKey] = data[key];
+    }
+
     return result;
 }
 
 function parseDbError(err) {
-    const msg = err.message || '';
+    const msg = err.message || "";
+
     const codes = {
-        'FEEDBACK_NOT_FOUND': 'Feedback not found.',
-        'MEMBER_NOT_FOUND':   'Member not found.',
-        'BLANK_RESPONSE':     'Response text cannot be empty.',
-        'ACCESS_DENIED':      msg.split(':')[1]?.trim() || 'Access denied.',
-        'RESPONSE_NOT_FOUND': 'Response not found.',
+        FEEDBACK_NOT_FOUND: "Feedback not found.",
+        MEMBER_NOT_FOUND: "Member not found.",
+        BLANK_RESPONSE: "Response text cannot be empty.",
+        RESPONSE_NOT_FOUND: "Response not found."
     };
-    for (const [code, human] of Object.entries(codes)) {
-        if (msg.startsWith(code)) return human;
+
+    if (msg.indexOf("ACCESS_DENIED") === 0) {
+        return msg.split(":")[1].trim() || "Access denied.";
     }
+
+    for (let code in codes) {
+        if (msg.indexOf(code) === 0) {
+            return codes[code];
+        }
+    }
+
     return null;
 }
 
@@ -48,13 +62,18 @@ class Response {
                 [feedbackId, memberId, responseText, null]
             );
             return {
-                response_id: result.rows[0]?.p_response_id,
+                response_id: result.rows[0].p_response_id,
                 feedback_id: feedbackId,
                 member_id:   memberId
             };
         } catch (err) {
             const clean = parseDbError(err);
-            if (clean) throw Object.assign(new Error(clean), { userFacing: true });
+            
+            if (clean) {
+                const error = new Error(clean);
+                error.userFacing = true;
+                throw error;}            
+            
             throw err;
         }
     }
@@ -68,7 +87,12 @@ class Response {
             );
         } catch (err) {
             const clean = parseDbError(err);
-            if (clean) throw Object.assign(new Error(clean), { userFacing: true });
+            
+            if (clean) {
+                const error = new Error(clean);
+                error.userFacing = true;
+                throw error;}            
+            
             throw err;
         }
     }
@@ -78,7 +102,7 @@ class Response {
         const result = await pool.query(
             'SELECT get_feedback_author_id($1) AS member_id', [feedbackId]
         );
-        return result.rows[0]?.member_id;
+        return result.rows[0].member_id;
     }
 }
 
