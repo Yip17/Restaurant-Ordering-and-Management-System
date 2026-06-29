@@ -591,3 +591,56 @@ BEGIN
                   so.order_date, so.total_amount, so.status;
 END;
 $$;
+
+
+-- Returns all orders placed by a member, including their order items
+-- and product details as a JSON array.
+--
+-- PgAdmin:
+-- SELECT * FROM get_member_orders(1);
+CREATE OR REPLACE FUNCTION get_member_orders(
+    p_member_id INT
+)
+RETURNS TABLE (
+    order_id INTEGER,
+    order_date TIMESTAMP,
+    total_amount NUMERIC,
+    status VARCHAR,
+    delivery_address TEXT,
+    items JSON
+)
+LANGUAGE plpgsql
+STABLE
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        so.order_id,
+        so.order_date,
+        so.total_amount,
+        so.status,
+        so.delivery_address,
+        json_agg(
+            json_build_object(
+                'order_item_id', soi.order_item_id,
+                'product_id', soi.product_id,
+                'product_name', p.name,
+                'quantity', soi.quantity,
+                'unit_price', soi.unit_price,
+                'subtotal', soi.subtotal
+            )
+            ORDER BY soi.order_item_id
+        ) AS items
+    FROM sale_order so
+    JOIN sale_order_item soi ON soi.order_id = so.order_id
+    JOIN product p ON p.product_id = soi.product_id
+    WHERE so.member_id = p_member_id
+    GROUP BY
+        so.order_id,
+        so.order_date,
+        so.total_amount,
+        so.status,
+        so.delivery_address
+    ORDER BY so.order_date DESC;
+END;
+$$;

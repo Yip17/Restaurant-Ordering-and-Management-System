@@ -40,8 +40,7 @@ class OrderController {
             res.status(201).json({ success: true, order });
         } catch (err) {
             console.error('create order error:', err);
-            const msg = err.message === 'Product not found or unavailable'
-                ? err.message : 'Failed to place order.';
+            const msg = err.message === 'Product not found or unavailable' ? err.message : 'Failed to place order.';
             res.status(500).json({ success: false, message: msg });
         }
     }

@@ -1,32 +1,30 @@
 // models/SaleOrder.js
 const pool = require('../config/database');
 
+function remapRow(data) {
+    if (data == null) {
+        return data;
+    }
+
+    let result = {};
+
+    for (let key in data) {
+        let newKey = key.replace("out_", "");
+        result[newKey] = data[key];
+    }
+
+    return result;
+}
+
 class SaleOrder {
 
     // Get all orders for a member, with items and product names
     static async findByMemberId(memberId) {
-        const query = `
-            SELECT
-                so.order_id, so.order_date, so.total_amount,
-                so.status,   so.delivery_address,
-                json_agg(
-                    json_build_object(
-                        'order_item_id', soi.order_item_id,
-                        'product_id',   soi.product_id,
-                        'product_name', p.name,
-                        'quantity',     soi.quantity,
-                        'unit_price',   soi.unit_price,
-                        'subtotal',     soi.subtotal
-                    ) ORDER BY soi.order_item_id
-                ) AS items
-            FROM sale_order so
-            JOIN sale_order_item soi ON soi.order_id  = so.order_id
-            JOIN product p           ON p.product_id  = soi.product_id
-            WHERE so.member_id = $1
-            GROUP BY so.order_id
-            ORDER BY so.order_date DESC
-        `;
-        const result = await pool.query(query, [memberId]);
+        const result = await pool.query(
+            "SELECT * FROM get_member_orders($1)",
+            [memberId]
+        );
+
         return result.rows;
     }
 
@@ -105,7 +103,7 @@ class SaleOrder {
             'SELECT get_completed_order_item_id($1, $2) AS order_item_id',
             [memberId, productId]
         );
-        return result.rows[0]?.order_item_id;
+        return result.rows[0].order_item_id;
     }
 
     // Dashboard summary — calls get_sale_order_summary (admin-only SQL function).
@@ -124,13 +122,7 @@ class SaleOrder {
         );
         // Strip the "out_" prefix added by the RETURNS TABLE declaration so
         // downstream code (controller, dashboard JS) sees clean field names.
-        return result.rows.map(row => {
-            const r = {};
-            for (const [k, v] of Object.entries(row)) {
-                r[k.startsWith('out_') ? k.slice(4) : k] = v;
-            }
-            return r;
-        });
+        return result.rows.map(remapRow);
     }
 }
 
