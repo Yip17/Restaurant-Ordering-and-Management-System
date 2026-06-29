@@ -1,8 +1,8 @@
 // controllers/feedbackController.js
 // Validation and access control are enforced in the stored procedures.
 // Controllers handle HTTP concerns: parse input, call model, shape response.
-const Feedback  = require('../models/Feedback');
-const SaleOrder = require('../models/SaleOrder');
+const Feedback = require('../models/Feedback');
+const pool     = require('../config/database');
 
 // Helper: sends a DB user-facing error as a 400, unknown errors as 500
 function handleError(res, err) {
@@ -40,33 +40,73 @@ class FeedbackController {
         } catch (err) { handleError(res, err); }
     }
 
-    // GET /feedback/:productId/eligibility
-    static async getEligibility(req, res) {
+    // GET /feedback/order-item/:orderItemId/eligibility
+    // Checks whether the logged-in member can submit feedback for a specific order item.
+    // Authorization: order item must belong to the member and its order must be COMPLETED.
+    // Returns: { eligible, alreadyReviewed, reason }
+    static async getOrderItemEligibility(req, res) {
         try {
-            const memberId        = req.session.userId;
-            const productId       = req.params.productId;
-            const hasOrder        = await SaleOrder.hasCompletedOrderForProduct(memberId, productId);
-            const alreadyReviewed = await Feedback.existsForMemberProduct(memberId, productId);
-            res.json({ success: true, eligible: hasOrder && !alreadyReviewed, alreadyReviewed });
+            const memberId    = req.session.userId;
+            const orderItemId = req.params.orderItemId;
+
+            const orderCheck = await pool.query(
+                `SELECT so.status
+                   FROM sale_order_item soi
+                   JOIN sale_order so ON so.order_id = soi.order_id
+                  WHERE soi.order_item_id = $1 AND so.member_id = $2`,
+                [orderItemId, memberId]
+            );
+
+            // Item doesn't exist or doesn't belong to this member
+            if (orderCheck.rows.length === 0) {
+                return res.status(403).json({
+                    success:  false,
+                    eligible: false,
+                    reason:   'Order item not found or does not belong to you.'
+                });
+            }
+
+            if (orderCheck.rows[0].status !== 'COMPLETED') {
+                return res.json({
+                    success:  true,
+                    eligible: false,
+                    reason:   'You can only write feedback after your order is completed.'
+                });
+            }
+
+            const alreadyReviewed = await Feedback.existsForOrderItem(orderItemId, memberId);
+            if (alreadyReviewed) {
+                return res.json({
+                    success:         true,
+                    eligible:        false,
+                    alreadyReviewed: true,
+                    reason:          'You have already submitted feedback for this order item.'
+                });
+            }
+
+            res.json({ success: true, eligible: true, alreadyReviewed: false, reason: null });
         } catch (err) { handleError(res, err); }
     }
 
     // POST /feedback
-    // Basic presence check here; all business rules enforced in create_feedback procedure
+    // Expects: { order_item_id, rating, comment }
+    // Authorization enforced in create_feedback procedure:
+    //   - order item must belong to the member
+    //   - order must be COMPLETED
+    //   - no existing feedback for this order item
     static async create(req, res) {
         try {
-            const memberId              = req.session.userId;
-            const { product_id, rating, comment } = req.body;
+            const memberId    = req.session.userId;
+            const { order_item_id, rating, comment } = req.body;
 
-            if (!product_id) {
-                return res.status(400).json({ success: false, message: 'Product is required.' });
+            if (!order_item_id) {
+                return res.status(400).json({ success: false, message: 'Order item is required.' });
             }
 
-            // Stored procedure handles all other validation
             const feedback = await Feedback.create({
                 memberId,
-                productId: product_id,
-                rating:    parseInt(rating),
+                orderItemId: order_item_id,
+                rating:      parseInt(rating),
                 comment
             });
 

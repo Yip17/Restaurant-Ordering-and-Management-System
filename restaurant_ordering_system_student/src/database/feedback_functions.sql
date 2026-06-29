@@ -46,38 +46,48 @@
 
 -- -----------------------------------------------------------------------------
 -- create_feedback
--- Creates a new feedback entry for a product the member has ordered.
+-- Creates a new feedback entry for a specific order item.
+--
+-- CHANGED: now accepts p_order_item_id directly instead of p_product_id.
+-- This allows one feedback per completed order item, so a member who orders
+-- the same product multiple times can review each order separately.
 --
 -- Validates:
 --   • member exists
---   • product exists
+--   • order_item exists and belongs to the member via a COMPLETED order
 --   • rating is 1–5
 --   • comment is not blank
---   • member has a COMPLETED order containing this product
---   • member has not already reviewed this product
+--   • no feedback already exists for this specific order_item
 --
 -- OUT p_feedback_id — ID of the newly created row.
 --
--- PgAdmin: CALL create_feedback(2, 1, 5, 'Great pizza!', NULL);
+-- PgAdmin: CALL create_feedback(2, 5, 5, 'Great pizza!', NULL);
+--   where 5 is an order_item_id from a completed order belonging to member 2
 -- App:     CALL create_feedback($1, $2, $3, $4, $5)  with null as 5th arg
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE create_feedback(
-    IN  p_member_id   INTEGER,
-    IN  p_product_id  INTEGER,
-    IN  p_rating      INTEGER,
-    IN  p_comment     TEXT,
-    OUT p_feedback_id INTEGER
+    IN  p_member_id      INTEGER,
+    IN  p_order_item_id  INTEGER,
+    IN  p_rating         INTEGER,
+    IN  p_comment        TEXT,
+    OUT p_feedback_id    INTEGER
 )
 LANGUAGE plpgsql AS $$
-DECLARE
-    v_order_item_id INTEGER;
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM member m WHERE m.member_id = p_member_id) THEN
         RAISE EXCEPTION 'MEMBER_NOT_FOUND: Member % does not exist.', p_member_id;
     END IF;
 
-    IF NOT EXISTS (SELECT 1 FROM product p WHERE p.product_id = p_product_id) THEN
-        RAISE EXCEPTION 'PRODUCT_NOT_FOUND: Product % does not exist.', p_product_id;
+    -- Verify the order item exists, belongs to the member, and its order is COMPLETED
+    IF NOT EXISTS (
+        SELECT 1
+          FROM sale_order_item soi
+          JOIN sale_order so ON so.order_id = soi.order_id
+         WHERE soi.order_item_id = p_order_item_id
+           AND so.member_id      = p_member_id
+           AND so.status         = 'COMPLETED'
+    ) THEN
+        RAISE EXCEPTION 'NO_COMPLETED_ORDER: You can only review items from your completed orders.';
     END IF;
 
     IF p_rating IS NULL OR p_rating < 1 OR p_rating > 5 THEN
@@ -88,32 +98,16 @@ BEGIN
         RAISE EXCEPTION 'BLANK_COMMENT: Comment cannot be empty.';
     END IF;
 
-    -- Resolve the order_item_id from the member's most recent COMPLETED order
-    SELECT soi.order_item_id INTO v_order_item_id
-      FROM sale_order so
-      JOIN sale_order_item soi ON soi.order_id = so.order_id
-     WHERE so.member_id   = p_member_id
-       AND soi.product_id = p_product_id
-       AND so.status      = 'COMPLETED'
-     ORDER BY so.order_date DESC
-     LIMIT 1;
-
-    IF v_order_item_id IS NULL THEN
-        RAISE EXCEPTION 'NO_COMPLETED_ORDER: You can only review products from completed orders.';
-    END IF;
-
+    -- One feedback per order item — prevents duplicate reviews for the same order item
     IF EXISTS (
-        SELECT 1
-          FROM feedback f
-          JOIN sale_order_item soi ON soi.order_item_id = f.order_item_id
-         WHERE f.member_id   = p_member_id
-           AND soi.product_id = p_product_id
+        SELECT 1 FROM feedback f
+         WHERE f.order_item_id = p_order_item_id AND f.member_id = p_member_id
     ) THEN
-        RAISE EXCEPTION 'ALREADY_REVIEWED: You have already submitted feedback for this product.';
+        RAISE EXCEPTION 'ALREADY_REVIEWED: You have already submitted feedback for this order item.';
     END IF;
 
     INSERT INTO feedback (order_item_id, member_id, rating, comment)
-    VALUES (v_order_item_id, p_member_id, p_rating, TRIM(p_comment))
+    VALUES (p_order_item_id, p_member_id, p_rating, TRIM(p_comment))
     RETURNING feedback.feedback_id INTO p_feedback_id;
 END;
 $$;
@@ -485,21 +479,22 @@ END;
 $$;
 
 
--- Returns TRUE if the member has already reviewed this product.
--- PgAdmin: SELECT feedback_exists_for_member_product(2, 1);
-CREATE OR REPLACE FUNCTION feedback_exists_for_member_product(
-    p_member_id  INTEGER,
-    p_product_id INTEGER
+-- Returns TRUE if the member has already reviewed this specific order item.
+-- Replaces the old feedback_exists_for_member_product — eligibility is now
+-- per order item, not per product, so members can review each order separately.
+-- PgAdmin: SELECT feedback_exists_for_order_item(5, 2);
+--   where 5 = order_item_id, 2 = member_id
+CREATE OR REPLACE FUNCTION feedback_exists_for_order_item(
+    p_order_item_id INTEGER,
+    p_member_id     INTEGER
 )
 RETURNS BOOLEAN
 LANGUAGE plpgsql STABLE AS $$
 BEGIN
     RETURN EXISTS (
-        SELECT 1
-          FROM feedback f
-          JOIN sale_order_item soi ON soi.order_item_id = f.order_item_id
-         WHERE f.member_id   = p_member_id
-           AND soi.product_id = p_product_id
+        SELECT 1 FROM feedback f
+         WHERE f.order_item_id = p_order_item_id
+           AND f.member_id     = p_member_id
     );
 END;
 $$;

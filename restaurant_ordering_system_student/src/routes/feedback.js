@@ -31,10 +31,10 @@ router.get('/my-feedback', ensureAuthenticated, (req, res) => {
 // 2. STATIC API PATHS  (fixed string segments — before any :param routes)
 // =============================================================================
 
-// GET  /feedback/my  — logged-in member's own feedback list
+// GET  /feedback/my  — logged-in member's own feedback list (JSON)
 router.get('/my', ensureAuthenticated, FeedbackController.index);
 
-// POST /feedback  — submit new feedback
+// POST /feedback  — submit new feedback (body: { order_item_id, rating, comment })
 router.post('/', ensureAuthenticated, FeedbackController.create);
 
 // DELETE /feedback/responses/:id  — delete own response
@@ -43,8 +43,14 @@ router.delete('/responses/:id', ensureAuthenticated, ResponseController.delete);
 
 // =============================================================================
 // 3. PARAMETERISED ROUTES with a fixed second segment  e.g. /:id/edit
-//    These beat the bare /:productId catch-all because they are more specific.
+//    These beat the bare catch-all because they are more specific.
 // =============================================================================
+
+// GET  /feedback/order-item/:orderItemId/eligibility
+// Checks whether the logged-in member can submit feedback for an order item.
+// Must be registered before /:feedbackId/detail etc. — but "order-item" is a
+// static string prefix so it won't conflict with numeric :id segments.
+router.get('/order-item/:orderItemId/eligibility', ensureAuthenticated, FeedbackController.getOrderItemEligibility);
 
 // GET  /feedback/:id/edit         — serve edit feedback page
 router.get('/:id/edit', ensureAuthenticated, (req, res) => {
@@ -53,9 +59,6 @@ router.get('/:id/edit', ensureAuthenticated, (req, res) => {
 
 // GET  /feedback/:productId/all         — all feedback for a product (JSON)
 router.get('/:productId/all', ensureAuthenticated, FeedbackController.getByProduct);
-
-// GET  /feedback/:productId/eligibility — can logged-in member write feedback? (JSON)
-router.get('/:productId/eligibility', ensureAuthenticated, FeedbackController.getEligibility);
 
 // GET  /feedback/:feedbackId/detail     — single feedback entry for edit pre-population (JSON)
 router.get('/:feedbackId/detail', ensureAuthenticated, FeedbackController.getById);

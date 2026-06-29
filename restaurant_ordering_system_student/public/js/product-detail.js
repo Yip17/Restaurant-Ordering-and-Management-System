@@ -102,7 +102,6 @@ async function handleOrderSubmit(e) {
         <a href="/orders/my-orders" class="alert-link ms-2">View My Orders →</a>`;
       successEl.style.display = 'block';
       document.getElementById('order-form').reset();
-      checkWriteFeedbackEligibility();
     } else {
       errorEl.textContent   = data.message || 'Failed to place order.';
       errorEl.style.display = 'block';
@@ -119,37 +118,27 @@ async function handleOrderSubmit(e) {
 // ── Feedback section ──────────────────────────────────────────────────────
 async function loadFeedbackSection() {
   await Promise.all([
-    checkWriteFeedbackEligibility(),
+    setupWriteFeedbackButton(),
     loadFeedbackList()
   ]);
 }
 
-async function checkWriteFeedbackEligibility() {
-  try {
-    const res  = await fetch(`/feedback/${currentProductId}/eligibility`);
-    const data = await res.json();
-    const btn  = document.getElementById('write-feedback-btn');
-    const msg  = document.getElementById('feedback-eligibility-msg');
+// The Write Feedback button on product-detail links to My Orders.
+// Feedback is now per order item — members write feedback from the My Orders page
+// where each completed order item has its own "Write Feedback" link.
+// We still show the button here for discoverability, pointing to My Orders.
+function setupWriteFeedbackButton() {
+  const btn = document.getElementById('write-feedback-btn');
+  const msg = document.getElementById('feedback-eligibility-msg');
 
-    // Always show the Write Feedback button
-    btn.href          = `/feedback/create?productId=${currentProductId}`;
-    btn.style.display = '';
+  btn.href          = '/orders/my-orders';
+  btn.textContent   = 'Write Feedback via My Orders';
+  btn.style.display = '';
 
-    // Show a reason message when the member cannot actually submit
-    if (msg) {
-      if (!data.eligible) {
-        if (data.alreadyReviewed) {
-          msg.textContent   = 'You have already submitted feedback for this product.';
-          msg.style.display = 'block';
-        } else {
-          msg.textContent   = 'You can only write feedback after your order is completed.';
-          msg.style.display = 'block';
-        }
-      } else {
-        msg.style.display = 'none';
-      }
-    }
-  } catch (_) {}
+  if (msg) {
+    msg.textContent   = 'To review a product, go to My Orders and click "Write Feedback" on a completed order.';
+    msg.style.display = 'block';
+  }
 }
 
 async function loadFeedbackList() {
@@ -316,7 +305,6 @@ async function deleteFeedback(feedbackId) {
       if (!document.querySelector('#feedback-list .card')) {
         document.getElementById('no-feedback').style.display = 'block';
       }
-      checkWriteFeedbackEligibility();
     } else { alert(data.message || 'Failed to delete feedback.'); }
   } catch (_) { alert('An error occurred.'); }
 }

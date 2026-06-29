@@ -52,7 +52,8 @@ function buildOrderCard(order) {
       <td>$${parseFloat(item.subtotal).toFixed(2)}</td>
       <td>
         ${order.status === 'COMPLETED'
-          ? `<a href="/feedback/${item.product_id}" class="btn btn-outline-primary btn-sm">Feedback</a>`
+          ? `<a href="/feedback/create?orderItemId=${item.order_item_id}&productId=${item.product_id}"
+                class="btn btn-outline-primary btn-sm">Write Feedback</a>`
           : '—'}
       </td>
     </tr>`).join('');

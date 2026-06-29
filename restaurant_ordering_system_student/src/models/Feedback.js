@@ -29,9 +29,14 @@ function parseDbError(err) {
     const msg = err.message || "";
 
     const codes = {
+        MEMBER_NOT_FOUND:   "Member not found.",
+        PRODUCT_NOT_FOUND:  "Product not found.",
+        INVALID_RATING:     "Rating must be between 1 and 5.",
+        BLANK_COMMENT:      "Comment cannot be empty.",
+        NO_COMPLETED_ORDER: "You can only review items from your completed orders.",
+        ALREADY_REVIEWED:   "You have already submitted feedback for this order.",
         FEEDBACK_NOT_FOUND: "Feedback not found.",
-        MEMBER_NOT_FOUND: "Member not found.",
-        BLANK_RESPONSE: "Response text cannot be empty.",
+        BLANK_RESPONSE:     "Response text cannot be empty.",
         RESPONSE_NOT_FOUND: "Response not found."
     };
 
@@ -74,23 +79,23 @@ class Feedback {
         return result.rows.map(remapRow);
     }
 
-    // Create — CALL procedure, then fetch the full row for the response
-    static async create({ memberId, productId, rating, comment }) {
+    // Create — CALL procedure with order_item_id (not product_id)
+    // One feedback per order item — member can review each completed order separately
+    static async create({ memberId, orderItemId, rating, comment }) {
         try {
             const result = await pool.query(
                 'CALL create_feedback($1, $2, $3, $4, $5)',
-                [memberId, productId, rating, comment, null]
+                [memberId, orderItemId, rating, comment, null]
             );
             const feedbackId = result.rows[0].p_feedback_id;
             return await Feedback.findById(feedbackId);
         } catch (err) {
             const clean = parseDbError(err);
-            
             if (clean) {
                 const error = new Error(clean);
                 error.userFacing = true;
-                throw error;}            
-            
+                throw error;
+            }
             throw err;
         }
     }
@@ -134,11 +139,11 @@ class Feedback {
         }
     }
 
-    // Check if member already reviewed this product
-    static async existsForMemberProduct(memberId, productId) {
+    // Check if a specific order item already has feedback from this member
+    static async existsForOrderItem(orderItemId, memberId) {
         const result = await pool.query(
-            'SELECT feedback_exists_for_member_product($1, $2) AS exists',
-            [memberId, productId]
+            'SELECT feedback_exists_for_order_item($1, $2) AS exists',
+            [orderItemId, memberId]
         );
         return result.rows[0].exists;
     }

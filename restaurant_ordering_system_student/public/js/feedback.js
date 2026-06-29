@@ -256,17 +256,21 @@ async function deleteFeedback(feedbackId, productId) {
    ========================================================= */
 
 async function initCreateFeedback() {
-  const params    = getParams();
-  const productId = params.get('productId');
-  const backBtn   = document.getElementById('back-btn');
-  const cancelBtn = document.getElementById('cancel-btn');
+  const params      = getParams();
+  const orderItemId = params.get('orderItemId');
+  const productId   = params.get('productId');
+  const backBtn     = document.getElementById('back-btn');
+  const cancelBtn   = document.getElementById('cancel-btn');
 
-  // Back and Cancel both return to the product detail page (feedback is shown there)
-  const productDetailUrl = `/member/product-detail?id=${productId}`;
-  if (backBtn)   backBtn.href   = productDetailUrl;
-  if (cancelBtn) cancelBtn.href = productDetailUrl;
+  // Back returns to My Orders (which is the entry point for per-order feedback)
+  const backUrl = productId
+    ? `/member/product-detail?id=${productId}`
+    : '/orders/my-orders';
+  if (backBtn)   backBtn.href   = backUrl;
+  if (cancelBtn) cancelBtn.href = backUrl;
 
-  document.getElementById('product-id').value = productId || '';
+  document.getElementById('product-id').value    = productId   || '';
+  document.getElementById('order-item-id').value = orderItemId || '';
 
   // Show username in navbar
   try {
@@ -278,7 +282,7 @@ async function initCreateFeedback() {
     }
   } catch (_) {}
 
-  // Load product name
+  // Load product name for the title
   if (productId) {
     try {
       const res  = await fetch(`/products/${productId}`);
@@ -291,30 +295,33 @@ async function initCreateFeedback() {
     } catch (_) {}
   }
 
-  // Check eligibility and warn — server enforces the real gate
-  try {
-    const eligRes  = await fetch(`/feedback/${productId}/eligibility`);
-    const eligData = await eligRes.json();
-    const notEligEl = document.getElementById('not-eligible-msg');
-    if (notEligEl && !eligData.eligible) {
-      notEligEl.style.display = 'block';
-      notEligEl.textContent = eligData.alreadyReviewed
-        ? 'You have already submitted feedback for this product.'
-        : 'You can only write feedback after your order is completed.';
-      document.getElementById('submit-btn').disabled = true;
-    }
-  } catch (_) {}
+  // Check eligibility for THIS specific order item
+  // Authorization: order item must belong to member + order must be COMPLETED
+  if (orderItemId) {
+    try {
+      const eligRes  = await fetch(`/feedback/order-item/${orderItemId}/eligibility`);
+      const eligData = await eligRes.json();
+      const notEligEl = document.getElementById('not-eligible-msg');
+      if (notEligEl && !eligData.eligible) {
+        notEligEl.textContent   = eligData.reason || 'You cannot submit feedback for this order.';
+        notEligEl.style.display = 'block';
+        document.getElementById('submit-btn').disabled = true;
+      }
+    } catch (_) {}
+  }
 
   document.getElementById('create-feedback-form').addEventListener('submit', async (e) => {
     e.preventDefault();
 
-    const rating  = document.getElementById('rating').value;
-    const comment = document.getElementById('comment').value.trim();
-    const pid     = document.getElementById('product-id').value;
-    const btn     = document.getElementById('submit-btn');
+    const rating      = document.getElementById('rating').value;
+    const comment     = document.getElementById('comment').value.trim();
+    const orderItemId = document.getElementById('order-item-id').value;
+    const productId   = document.getElementById('product-id').value;
+    const btn         = document.getElementById('submit-btn');
 
-    if (!rating)  { showError('Please select a rating.'); return; }
-    if (!comment) { showError('Please enter a comment.'); return; }
+    if (!rating)      { showError('Please select a rating.'); return; }
+    if (!comment)     { showError('Please enter a comment.'); return; }
+    if (!orderItemId) { showError('Order item reference missing. Please go back and try again.'); return; }
 
     btn.disabled    = true;
     btn.textContent = 'Submitting…';
@@ -323,13 +330,19 @@ async function initCreateFeedback() {
       const res  = await fetch('/feedback', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ product_id: parseInt(pid), rating: parseInt(rating), comment })
+        body:    JSON.stringify({
+          order_item_id: parseInt(orderItemId),
+          rating:        parseInt(rating),
+          comment
+        })
       });
       const data = await res.json();
 
       if (data.success) {
-        // Return to product detail page where feedback is displayed
-        window.location.href = `/member/product-detail?id=${pid}`;
+        // Return to product detail page where all feedback is displayed
+        window.location.href = productId
+          ? `/member/product-detail?id=${productId}`
+          : '/orders/my-orders';
       } else {
         showError(data.message || 'Failed to submit feedback.');
         btn.disabled    = false;
