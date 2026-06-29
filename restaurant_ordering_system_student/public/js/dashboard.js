@@ -26,6 +26,8 @@ function loadDashboardData() {
             populateCategories(data.categories);
             restoreFilters(data.filters);
             displayOrders(data.orders);
+            // Load product feedback when a category filter is active
+            loadProductFeedback(data.filters.category || null);
         })
         .catch(() => showDashboardError('Could not connect to the server.'));
 }
@@ -216,3 +218,313 @@ function escapeHtml(str) {
 
 // Reload on browser back/forward
 window.addEventListener('popstate', loadDashboardData);
+
+// =============================================================================
+// PRODUCT FEEDBACK SECTION
+// Shown when admin filters by category. Loads all feedback for the matching
+// product and lets the admin post follow-up responses.
+//
+// Flow:
+//   GET /api/dashboard/product-feedback?category=X
+//     → resolves product_id from category
+//     → SELECT * FROM get_feedback_by_product(product_id)
+//     → for each feedback: SELECT * FROM get_response(feedback_id)
+//   POST /feedback/:feedbackId/responses
+//     → CALL create_response(feedbackId, adminMemberId, text, NULL)
+//     → procedure allows any member who is NOT the feedback author to respond
+//   DELETE /feedback/responses/:id
+//     → CALL delete_response(responseId, adminMemberId)
+//     → procedure validates admin owns that response
+// =============================================================================
+
+async function loadProductFeedback(category) {
+    const section    = document.getElementById('feedback-section');
+    const loading    = document.getElementById('feedback-loading');
+    const errEl      = document.getElementById('feedback-section-error');
+    const noFbEl     = document.getElementById('no-product-feedback');
+    const listEl     = document.getElementById('product-feedback-list');
+    const titleEl    = document.getElementById('feedback-section-title');
+
+    // Hide section entirely when no category is selected
+    if (!category) {
+        section.style.display = 'none';
+        return;
+    }
+
+    section.style.display   = 'block';
+    loading.style.display   = 'block';
+    errEl.style.display     = 'none';
+    noFbEl.style.display    = 'none';
+    listEl.innerHTML        = '';
+    titleEl.textContent     = `Product Feedback — ${category}`;
+
+    try {
+        const res  = await fetch(`/api/dashboard/product-feedback?category=${encodeURIComponent(category)}`);
+        const data = await res.json();
+
+        loading.style.display = 'none';
+
+        if (!data.success) {
+            errEl.textContent   = data.message || 'Failed to load feedback.';
+            errEl.style.display = 'block';
+            return;
+        }
+
+        if (!data.product) {
+            noFbEl.textContent   = `No product found for category "${escapeHtml(category)}".`;
+            noFbEl.style.display = 'block';
+            return;
+        }
+
+        titleEl.textContent = `Product Feedback — ${escapeHtml(data.product.name)} (${escapeHtml(category)})`;
+
+        // Render availability toggle with current state
+        renderAvailabilityToggle(data.product);
+
+        if (!data.feedback || data.feedback.length === 0) {
+            noFbEl.style.display = 'block';
+            return;
+        }
+
+        // Get current admin's member ID for response ownership checks
+        const authRes  = await fetch('/api/auth/status');
+        const authData = await authRes.json();
+        const adminId  = authData.authenticated ? authData.user.id : null;
+
+        data.feedback.forEach(fb => {
+            listEl.appendChild(buildAdminFeedbackCard(fb, adminId));
+        });
+
+    } catch (_) {
+        loading.style.display = 'none';
+        errEl.textContent     = 'Failed to load product feedback.';
+        errEl.style.display   = 'block';
+    }
+}
+
+// =============================================================================
+// PRODUCT AVAILABILITY TOGGLE
+// Admin can mark a product Available / Unavailable from the dashboard.
+// When unavailable, SaleOrder.create() blocks new orders server-side because
+// it checks is_available = true — no extra gate needed in the front-end.
+// =============================================================================
+
+// Tracks the currently displayed product so the toggle button knows which ID to patch.
+let _currentProduct = null;
+
+// Render the availability badge and toggle button with the product's current state.
+function renderAvailabilityToggle(product) {
+    _currentProduct = product;
+
+    const badge  = document.getElementById('product-availability-badge');
+    const btn    = document.getElementById('toggle-availability-btn');
+
+    if (product.is_available) {
+        badge.textContent  = 'Available';
+        badge.className    = 'badge bg-success';
+        btn.textContent    = 'Mark Unavailable';
+        btn.className      = 'btn btn-sm btn-outline-danger';
+    } else {
+        badge.textContent  = 'Unavailable';
+        badge.className    = 'badge bg-secondary';
+        btn.textContent    = 'Mark Available';
+        btn.className      = 'btn btn-sm btn-outline-success';
+    }
+
+    btn.style.display = '';
+}
+
+// PATCH /api/dashboard/product-availability
+// Flips is_available and refreshes the badge + button without reloading the page.
+async function toggleProductAvailability() {
+    if (!_currentProduct) return;
+
+    const btn        = document.getElementById('toggle-availability-btn');
+    const newValue   = !_currentProduct.is_available;
+    const label      = newValue ? 'available' : 'unavailable';
+
+    if (!confirm(`Mark "${escapeHtml(_currentProduct.name)}" as ${label}?`)) return;
+
+    btn.disabled = true;
+
+    try {
+        const res  = await fetch('/api/dashboard/product-availability', {
+            method:  'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({
+                product_id:   _currentProduct.product_id,
+                is_available: newValue
+            })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            // Update local state and re-render the badge/button
+            renderAvailabilityToggle(data.product);
+        } else {
+            alert(data.message || 'Failed to update product availability.');
+        }
+    } catch (_) {
+        alert('An error occurred.');
+    }
+
+    btn.disabled = false;
+}
+
+// Build a single feedback card for the admin view.
+// Shows full feedback detail, all responses, and a follow-up response form.
+function buildAdminFeedbackCard(fb, adminId) {
+    const card = document.createElement('div');
+    card.className = 'card mb-3 border-start border-3 border-info';
+    card.id = `admin-fb-card-${fb.feedback_id}`;
+
+    // Build star display
+    let stars = '';
+    for (let i = 1; i <= 5; i++) {
+        stars += `<span class="${i <= fb.rating ? 'text-warning' : 'text-muted'}">★</span>`;
+    }
+
+    // Build responses HTML
+    const responsesHtml = buildResponsesHtml(fb.responses || [], adminId, fb.feedback_id);
+
+    // Admin is never the feedback author (different role), so the response form
+    // is always shown. The create_response procedure enforces this at DB level too.
+    card.innerHTML = `
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start mb-1">
+                <div>
+                    <span class="fw-semibold me-2">${escapeHtml(fb.username || 'Member')}</span>
+                    <span>${stars}</span>
+                    <small class="text-muted ms-2">${new Date(fb.created_at).toLocaleDateString()}</small>
+                    ${fb.updated_at ? `<small class="text-muted ms-1">(edited ${new Date(fb.updated_at).toLocaleDateString()})</small>` : ''}
+                </div>
+                <span class="badge bg-secondary">Feedback #${fb.feedback_id}</span>
+            </div>
+
+            <p class="mb-2 mt-1">${escapeHtml(fb.comment || '')}</p>
+
+            <!-- Responses -->
+            <div id="admin-responses-${fb.feedback_id}"
+                 class="ms-3 border-start border-2 ps-3 mb-2">
+                ${responsesHtml}
+            </div>
+
+            <!-- Admin follow-up response form -->
+            <div class="mt-2">
+                <label class="form-label small text-muted fw-semibold">Admin Follow-up Response</label>
+                <div class="input-group input-group-sm">
+                    <input type="text" class="form-control"
+                           id="admin-resp-input-${fb.feedback_id}"
+                           placeholder="Write a follow-up response…"
+                           maxlength="500">
+                    <button class="btn btn-outline-primary"
+                            onclick="adminSubmitResponse(${fb.feedback_id})">Send</button>
+                </div>
+                <div id="admin-resp-error-${fb.feedback_id}"
+                     class="text-danger mt-1" style="font-size:0.85rem;"></div>
+            </div>
+        </div>`;
+
+    return card;
+}
+
+// Build the HTML for all responses inside a feedback card.
+function buildResponsesHtml(responses, adminId, feedbackId) {
+    if (!responses || responses.length === 0) {
+        return '<small class="text-muted">No responses yet.</small>';
+    }
+    return responses.map(r => {
+        const isAdminOwn = adminId && Number(r.member_id) === Number(adminId);
+        return `
+            <div class="d-flex justify-content-between align-items-start mb-1"
+                 id="admin-resp-row-${r.response_id}">
+                <div>
+                    <span class="fw-semibold me-1" style="font-size:0.9rem;">
+                        ${escapeHtml(r.username || 'Member')}:
+                    </span>
+                    <span style="font-size:0.9rem;">${escapeHtml(r.response_text)}</span>
+                    <small class="text-muted ms-1">${new Date(r.created_at).toLocaleDateString()}</small>
+                </div>
+                ${isAdminOwn ? `
+                    <button class="btn btn-link btn-sm text-danger p-0 ms-2"
+                            onclick="adminDeleteResponse(${r.response_id}, ${feedbackId})">
+                        Delete
+                    </button>` : ''}
+            </div>`;
+    }).join('');
+}
+
+// POST /feedback/:feedbackId/responses
+// Admin submits a follow-up response to a feedback entry.
+// The create_response procedure validates that admin is not the feedback author.
+async function adminSubmitResponse(feedbackId) {
+    const input   = document.getElementById(`admin-resp-input-${feedbackId}`);
+    const errorEl = document.getElementById(`admin-resp-error-${feedbackId}`);
+    const text    = input.value.trim();
+
+    errorEl.textContent = '';
+
+    if (!text) {
+        errorEl.textContent = 'Response cannot be empty.';
+        return;
+    }
+
+    try {
+        const res  = await fetch(`/feedback/${feedbackId}/responses`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ response_text: text })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            input.value = '';
+            // Reload the responses block for this card
+            await refreshAdminResponses(feedbackId);
+        } else {
+            errorEl.textContent = data.message || 'Failed to submit response.';
+        }
+    } catch (_) {
+        errorEl.textContent = 'An error occurred.';
+    }
+}
+
+// DELETE /feedback/responses/:id
+// Admin deletes their own response.
+async function adminDeleteResponse(responseId, feedbackId) {
+    if (!confirm('Delete this response?')) return;
+    try {
+        const res  = await fetch(`/feedback/responses/${responseId}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+            await refreshAdminResponses(feedbackId);
+        } else {
+            alert(data.message || 'Failed to delete response.');
+        }
+    } catch (_) {
+        alert('An error occurred.');
+    }
+}
+
+// Reload the responses block for a single feedback card after a change.
+async function refreshAdminResponses(feedbackId) {
+    const container = document.getElementById(`admin-responses-${feedbackId}`);
+    if (!container) return;
+
+    try {
+        const authRes  = await fetch('/api/auth/status');
+        const authData = await authRes.json();
+        const adminId  = authData.authenticated ? authData.user.id : null;
+
+        const res  = await fetch(`/feedback/${feedbackId}/responses`);
+        const data = await res.json();
+
+        container.innerHTML = buildResponsesHtml(
+            data.success ? data.responses : [],
+            adminId,
+            feedbackId
+        );
+    } catch (_) {
+        container.innerHTML = '<small class="text-danger">Could not reload responses.</small>';
+    }
+}

@@ -25,4 +25,12 @@ router.get('/auth/status', (req, res) => {
 // GET /api/dashboard — returns filtered order summary (admin only)
 router.get('/dashboard', ensureAuthenticated, ensureAdmin, DashboardController.index);
 
+// GET /api/dashboard/product-feedback?category=X
+// Returns the product for a given category with all feedback and responses (admin only).
+router.get('/dashboard/product-feedback', ensureAuthenticated, ensureAdmin, DashboardController.getProductFeedback);
+
+// PATCH /api/dashboard/product-availability
+// Toggles a product's is_available flag (admin only).
+router.patch('/dashboard/product-availability', ensureAuthenticated, ensureAdmin, DashboardController.updateProductAvailability);
+
 module.exports = router;

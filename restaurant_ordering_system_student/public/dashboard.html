@@ -121,7 +121,7 @@
         </div>
 
         <!-- ── Order Summary Table ─────────────────────────────────────── -->
-        <div class="card">
+        <div class="card mb-4">
             <div class="card-body">
                 <h5 class="card-title" id="order-summary-title">Order Summary</h5>
 
@@ -152,7 +152,50 @@
             </div>
         </div>
 
+        <!-- ── Product Feedback Section ────────────────────────────────── -->
+        <!--
+            Shown when the admin filters by category (= one product per category).
+            Admin can read all customer feedback and responses, and post a
+            follow-up response to any feedback entry.
+        -->
+        <div id="feedback-section" style="display:none;">
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="card-title mb-0" id="feedback-section-title">Product Feedback</h5>
+                        <!-- Product availability toggle — admin only -->
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="text-muted small">Product Status:</span>
+                            <span id="product-availability-badge" class="badge"></span>
+                            <button id="toggle-availability-btn"
+                                    class="btn btn-sm"
+                                    onclick="toggleProductAvailability()"
+                                    style="display:none;">
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="feedback-loading" class="text-center py-3" style="display:none;">
+                        <div class="spinner-border spinner-border-sm text-secondary" role="status">
+                            <span class="visually-hidden">Loading…</span>
+                        </div>
+                    </div>
+
+                    <div id="feedback-section-error" class="alert alert-danger" style="display:none;"></div>
+
+                    <div id="no-product-feedback" class="alert alert-info" style="display:none;">
+                        No feedback yet for this product.
+                    </div>
+
+                    <div id="product-feedback-list"></div>
+                </div>
+            </div>
+        </div>
+
     </main>
+
+    <!-- ── Response delete confirmation modal (reusable) ───────────────── -->
+    <!-- Not needed — deletes use inline confirm() for simplicity -->
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="/js/main.js"></script>

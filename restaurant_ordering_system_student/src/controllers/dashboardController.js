@@ -4,6 +4,8 @@
 // Controller only handles HTTP concerns: parse query params, call model, shape response.
 const SaleOrder = require('../models/SaleOrder');
 const Product   = require('../models/Product');
+const Feedback  = require('../models/Feedback');
+const Response  = require('../models/Response');
 
 class DashboardController {
 
@@ -75,6 +77,65 @@ class DashboardController {
                 return res.status(400).json({ success: false, message: err.message.split(':')[1].trim() });
             }
             res.status(500).json({ success: false, message: 'Failed to load dashboard data.' });
+        }
+    }
+    // GET /api/dashboard/product-feedback?category=X
+    // Returns the product matching the category with all its feedback and responses.
+    // Used by the admin dashboard to view and reply to customer feedback per product.
+    static async getProductFeedback(req, res) {
+        try {
+            const category = req.query.category || null;
+
+            if (!category) {
+                return res.json({ success: true, product: null, feedback: [] });
+            }
+
+            // Resolve product from category name via Product model
+            const product = await Product.findByCategory(category);
+            if (!product) {
+                return res.json({ success: true, product: null, feedback: [] });
+            }
+
+            // Fetch all feedback for that product — calls get_feedback_by_product() SQL function
+            const feedbackRows = await Feedback.findByProductId(product.product_id);
+
+            // For each feedback entry, attach its responses — calls get_response() SQL function
+            for (const fb of feedbackRows) {
+                fb.responses = await Response.findByFeedbackId(fb.feedback_id);
+            }
+
+            res.json({ success: true, product, feedback: feedbackRows });
+
+        } catch (err) {
+            console.error('getProductFeedback error:', err);
+            res.status(500).json({ success: false, message: 'Failed to load product feedback.' });
+        } 
+    }
+    // PATCH /api/dashboard/product-availability
+    // Toggles a product's is_available flag. Admin-only.
+    // Body: { product_id, is_available }
+    // When set to false, SaleOrder.create() already blocks new orders because
+    // it checks is_available = true before inserting — no extra gate needed.
+    static async updateProductAvailability(req, res) {
+        try {
+            const { product_id, is_available } = req.body;
+
+            if (product_id === undefined || product_id === null) {
+                return res.status(400).json({ success: false, message: 'product_id is required.' });
+            }
+            if (typeof is_available !== 'boolean') {
+                return res.status(400).json({ success: false, message: 'is_available must be true or false.' });
+            }
+
+            const product = await Product.setAvailability(product_id, is_available);
+            if (!product) {
+                return res.status(404).json({ success: false, message: 'Product not found.' });
+            }
+
+            res.json({ success: true, product });
+        } catch (err) {
+            console.error('updateProductAvailability error:', err);
+            res.status(500).json({ success: false, message: 'Failed to update product availability.' });
         }
     }
 }
