@@ -21,6 +21,7 @@ document.getElementById('registerForm').addEventListener('submit', async (e) => 
   if (!username || username.length < 3) { showError('Username must be at least 3 characters.'); return; }
   if (!firstName || !lastName)          { showError('First name and last name are required.'); return; }
   if (!email)                           { showError('Email is required.'); return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showError('Please enter a valid email address.'); return; }
   if (password.length < 8)             { showError('Password must be at least 8 characters.'); return; }
   if (password !== confirm) {
     showError('Passwords do not match.');
