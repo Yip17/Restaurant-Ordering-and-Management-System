@@ -23,7 +23,7 @@ class Product {
     // Returns the first product matching a category name (one product per category in this dataset).
     static async findByCategory(category) {
         const result = await pool.query(
-            'SELECT product_id, name, category, is_available FROM product WHERE category = $1 LIMIT 1',
+            'SELECT product_id, name, category, is_available FROM product WHERE category = $1',
             [category]
         );
         return result.rows[0] || null;

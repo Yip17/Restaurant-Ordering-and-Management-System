@@ -81,7 +81,7 @@ class Feedback {
                 'CALL create_feedback($1, $2, $3, $4, $5)',
                 [memberId, productId, rating, comment, null]
             );
-            const feedbackId = result.rows[0]?.p_feedback_id;
+            const feedbackId = result.rows[0].p_feedback_id;
             return await Feedback.findById(feedbackId);
         } catch (err) {
             const clean = parseDbError(err);

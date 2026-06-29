@@ -261,8 +261,10 @@ async function initCreateFeedback() {
   const backBtn   = document.getElementById('back-btn');
   const cancelBtn = document.getElementById('cancel-btn');
 
-  if (backBtn)   backBtn.href   = `/feedback/${productId}`;
-  if (cancelBtn) cancelBtn.href = `/feedback/${productId}`;
+  // Back and Cancel both return to the product detail page (feedback is shown there)
+  const productDetailUrl = `/member/product-detail?id=${productId}`;
+  if (backBtn)   backBtn.href   = productDetailUrl;
+  if (cancelBtn) cancelBtn.href = productDetailUrl;
 
   document.getElementById('product-id').value = productId || '';
 
@@ -289,21 +291,16 @@ async function initCreateFeedback() {
     } catch (_) {}
   }
 
-  // Check eligibility upfront and warn — but still allow form submission
-  // (server enforces the real gate)
+  // Check eligibility and warn — server enforces the real gate
   try {
     const eligRes  = await fetch(`/feedback/${productId}/eligibility`);
     const eligData = await eligRes.json();
     const notEligEl = document.getElementById('not-eligible-msg');
     if (notEligEl && !eligData.eligible) {
       notEligEl.style.display = 'block';
-      if (eligData.alreadyReviewed) {
-        notEligEl.textContent =
-          'You have already submitted feedback for this product.';
-      } else {
-        notEligEl.textContent =
-          'You can only write feedback for products from a completed order.';
-      }
+      notEligEl.textContent = eligData.alreadyReviewed
+        ? 'You have already submitted feedback for this product.'
+        : 'You can only write feedback after your order is completed.';
       document.getElementById('submit-btn').disabled = true;
     }
   } catch (_) {}
@@ -331,7 +328,8 @@ async function initCreateFeedback() {
       const data = await res.json();
 
       if (data.success) {
-        window.location.href = `/feedback/${pid}`;
+        // Return to product detail page where feedback is displayed
+        window.location.href = `/member/product-detail?id=${pid}`;
       } else {
         showError(data.message || 'Failed to submit feedback.');
         btn.disabled    = false;
@@ -362,8 +360,10 @@ async function initEditFeedback() {
   const backBtn   = document.getElementById('back-btn');
   const cancelBtn = document.getElementById('cancel-btn');
 
-  if (backBtn)   backBtn.href   = `/feedback/${productId}`;
-  if (cancelBtn) cancelBtn.href = `/feedback/${productId}`;
+  // Back and Cancel return to the product detail page
+  const productDetailUrl = `/member/product-detail?id=${productId}`;
+  if (backBtn)   backBtn.href   = productDetailUrl;
+  if (cancelBtn) cancelBtn.href = productDetailUrl;
 
   // Show username in navbar
   try {
@@ -412,7 +412,7 @@ async function initEditFeedback() {
 
     if (!rating) { showError('Please select a rating.'); return; }
 
-    btn.disabled = true;
+    btn.disabled    = true;
     btn.textContent = 'Saving…';
 
     try {
@@ -424,15 +424,16 @@ async function initEditFeedback() {
       const data = await res.json();
 
       if (data.success) {
-        window.location.href = `/feedback/${pid}`;
+        // Return to product detail page where feedback is displayed
+        window.location.href = `/member/product-detail?id=${pid}`;
       } else {
         showError(data.message || 'Failed to update feedback.');
-        btn.disabled = false;
+        btn.disabled    = false;
         btn.textContent = 'Save Changes';
       }
     } catch (_) {
       showError('An error occurred.');
-      btn.disabled = false;
+      btn.disabled    = false;
       btn.textContent = 'Save Changes';
     }
   });
