@@ -29,9 +29,23 @@ class DashboardController {
             // Compute summary stats from the returned rows (all done in SQL already,
             // but we derive these totals from the result set for the stat cards).
             const totalOrders   = orders.length;
-            const totalRevenue  = orders.reduce((sum, o) => sum + parseFloat(o.total_amount), 0);
-            const statusCounts  = { PACKING: 0, COMPLETED: 0, CANCELLED: 0 };
-            orders.forEach(o => { if (statusCounts[o.status] !== undefined) statusCounts[o.status]++; });
+            let totalRevenue = 0;
+
+            const statusCounts = {
+                PACKING: 0,
+                COMPLETED: 0,
+                CANCELLED: 0
+            };
+
+            for (let i = 0; i < orders.length; i++) {
+                const order = orders[i];
+
+                totalRevenue += Number(order.total_amount);
+
+                if (statusCounts[order.status] !== undefined) {
+                    statusCounts[order.status]++;
+                }
+            }
 
             res.json({
                 success: true,
@@ -57,8 +71,8 @@ class DashboardController {
         } catch (err) {
             console.error('Dashboard error:', err);
             // Surface user-facing DB errors (e.g. INVALID_STATUS)
-            if (err.message && err.message.startsWith('INVALID_STATUS')) {
-                return res.status(400).json({ success: false, message: err.message.split(':')[1]?.trim() });
+            if (msg.indexOf("INVALID_STATUS") === 0) {
+                return res.status(400).json({ success: false, message: err.message.split(':')[1].trim() });
             }
             res.status(500).json({ success: false, message: 'Failed to load dashboard data.' });
         }
