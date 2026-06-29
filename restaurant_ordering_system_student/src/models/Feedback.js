@@ -9,31 +9,42 @@
 const pool = require('../config/database');
 
 // Strip the "out_" prefix from keys returned by the plpgsql RETURNS TABLE functions.
-function remapRow(row) {
-    if (!row) return row;
-    const result = {};
-    for (const [key, val] of Object.entries(row)) {
-        result[key.startsWith('out_') ? key.slice(4) : key] = val;
+function remapRow(data) {
+    if (data == null) {
+        return data;
     }
+
+    let result = {};
+
+    for (let key in data) {
+        let newKey = key.replace("out_", "");
+        result[newKey] = data[key];
+    }
+
     return result;
 }
 
 // Maps the error code prefix in the SQL RAISE message to a clean user-facing string.
 function parseDbError(err) {
-    const msg = err.message || '';
+    const msg = err.message || "";
+
     const codes = {
-        'MEMBER_NOT_FOUND':   'Member not found.',
-        'PRODUCT_NOT_FOUND':  'Product not found.',
-        'INVALID_RATING':     'Rating must be between 1 and 5.',
-        'BLANK_COMMENT':      'Comment cannot be empty.',
-        'NO_COMPLETED_ORDER': 'You can only review products from completed orders.',
-        'ALREADY_REVIEWED':   'You have already submitted feedback for this product.',
-        'FEEDBACK_NOT_FOUND': 'Feedback not found.',
-        'ACCESS_DENIED':      msg.split(':')[1]?.trim() || 'Access denied.',
+        FEEDBACK_NOT_FOUND: "Feedback not found.",
+        MEMBER_NOT_FOUND: "Member not found.",
+        BLANK_RESPONSE: "Response text cannot be empty.",
+        RESPONSE_NOT_FOUND: "Response not found."
     };
-    for (const [code, human] of Object.entries(codes)) {
-        if (msg.startsWith(code)) return human;
+
+    if (msg.indexOf("ACCESS_DENIED") === 0) {
+        return msg.split(":")[1].trim() || "Access denied.";
     }
+
+    for (let code in codes) {
+        if (msg.indexOf(code) === 0) {
+            return codes[code];
+        }
+    }
+
     return null;
 }
 
@@ -74,7 +85,12 @@ class Feedback {
             return await Feedback.findById(feedbackId);
         } catch (err) {
             const clean = parseDbError(err);
-            if (clean) throw Object.assign(new Error(clean), { userFacing: true });
+            
+            if (clean) {
+                const error = new Error(clean);
+                error.userFacing = true;
+                throw error;}            
+            
             throw err;
         }
     }
@@ -89,7 +105,12 @@ class Feedback {
             return await Feedback.findById(feedbackId);
         } catch (err) {
             const clean = parseDbError(err);
-            if (clean) throw Object.assign(new Error(clean), { userFacing: true });
+            
+            if (clean) {
+                const error = new Error(clean);
+                error.userFacing = true;
+                throw error;}            
+            
             throw err;
         }
     }
@@ -103,7 +124,12 @@ class Feedback {
             );
         } catch (err) {
             const clean = parseDbError(err);
-            if (clean) throw Object.assign(new Error(clean), { userFacing: true });
+            
+            if (clean) {
+                const error = new Error(clean);
+                error.userFacing = true;
+                throw error;}            
+            
             throw err;
         }
     }
