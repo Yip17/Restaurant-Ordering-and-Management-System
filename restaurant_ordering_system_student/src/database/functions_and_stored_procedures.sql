@@ -119,3 +119,316 @@ BEGIN
         USING p_start_date, p_end_date, p_category, p_status;
 END;
 $$;
+
+
+-- =============================================================================
+-- MEMBER FUNCTIONS & PROCEDURES
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- get_member_by_email
+-- Looks up a member by email for login.
+-- Returns member_id, username, password_hash, and role.
+-- Returns empty result set if not found (not an error — caller checks).
+--
+-- PgAdmin: SELECT * FROM get_member_by_email('user@example.com');
+-- App:     SELECT * FROM get_member_by_email($1)
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION get_member_by_email(p_email VARCHAR)
+RETURNS TABLE (
+    out_member_id     INTEGER,
+    out_username      VARCHAR,
+    out_password_hash TEXT,
+    out_role          VARCHAR
+)
+LANGUAGE plpgsql STABLE AS $$
+BEGIN
+    RETURN QUERY
+        SELECT m.member_id, m.username, m.password_hash, mr.role
+          FROM member m
+          JOIN member_role mr ON mr.member_id = m.member_id
+         WHERE m.email = p_email
+         LIMIT 1;
+END;
+$$;
+
+
+-- -----------------------------------------------------------------------------
+-- register_member
+-- Creates a new member and assigns a role atomically.
+-- Raises an error (caught by Node) if username or email is already taken.
+-- OUT p_member_id — the newly created member's ID.
+--
+-- PgAdmin: CALL register_member('alice', 'alice@example.com', 'hashed', 'Alice', 'Smith', 'USER', NULL);
+-- App:     CALL register_member($1, $2, $3, $4, $5, $6, NULL)
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE PROCEDURE register_member(
+    IN  p_username      VARCHAR,
+    IN  p_email         VARCHAR,
+    IN  p_password_hash TEXT,
+    IN  p_first_name    VARCHAR,
+    IN  p_last_name     VARCHAR,
+    IN  p_role          VARCHAR,
+    OUT p_member_id     INTEGER
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM member m WHERE m.username = p_username) THEN
+        RAISE EXCEPTION 'USERNAME_TAKEN: Username % is already taken.', p_username;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM member m WHERE m.email = p_email) THEN
+        RAISE EXCEPTION 'EMAIL_TAKEN: Email % is already registered.', p_email;
+    END IF;
+
+    INSERT INTO member (username, email, password_hash, first_name, last_name)
+    VALUES (p_username, p_email, p_password_hash, p_first_name, p_last_name)
+    RETURNING member.member_id INTO p_member_id;
+
+    INSERT INTO member_role (member_id, role)
+    VALUES (p_member_id, p_role);
+END;
+$$;
+
+
+-- =============================================================================
+-- PRODUCT FUNCTIONS & PROCEDURES
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- get_products
+-- Returns all available products ordered by name.
+--
+-- PgAdmin: SELECT * FROM get_products();
+-- App:     SELECT * FROM get_products()
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION get_products()
+RETURNS TABLE (
+    out_product_id   INTEGER,
+    out_name         VARCHAR,
+    out_description  TEXT,
+    out_price        NUMERIC,
+    out_category     VARCHAR,
+    out_is_available BOOLEAN
+)
+LANGUAGE plpgsql STABLE AS $$
+BEGIN
+    RETURN QUERY
+        SELECT p.product_id, p.name, p.description, p.price, p.category, p.is_available
+          FROM product p
+         WHERE p.is_available = true
+         ORDER BY p.name;
+END;
+$$;
+
+
+-- -----------------------------------------------------------------------------
+-- get_product_by_id
+-- Returns a single product by its ID.
+-- Returns empty result set if not found.
+--
+-- PgAdmin: SELECT * FROM get_product_by_id(1);
+-- App:     SELECT * FROM get_product_by_id($1)
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION get_product_by_id(p_product_id INTEGER)
+RETURNS TABLE (
+    out_product_id   INTEGER,
+    out_name         VARCHAR,
+    out_description  TEXT,
+    out_price        NUMERIC,
+    out_category     VARCHAR,
+    out_is_available BOOLEAN
+)
+LANGUAGE plpgsql STABLE AS $$
+BEGIN
+    RETURN QUERY
+        SELECT p.product_id, p.name, p.description, p.price, p.category, p.is_available
+          FROM product p
+         WHERE p.product_id = p_product_id;
+END;
+$$;
+
+
+-- -----------------------------------------------------------------------------
+-- get_product_categories
+-- Returns all distinct non-null product categories in alphabetical order.
+--
+-- PgAdmin: SELECT * FROM get_product_categories();
+-- App:     SELECT * FROM get_product_categories()
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION get_product_categories()
+RETURNS TABLE (out_category VARCHAR)
+LANGUAGE plpgsql STABLE AS $$
+BEGIN
+    RETURN QUERY
+        SELECT DISTINCT p.category
+          FROM product p
+         WHERE p.category IS NOT NULL
+         ORDER BY p.category;
+END;
+$$;
+
+
+-- -----------------------------------------------------------------------------
+-- get_product_by_category
+-- Returns the first product matching a category name.
+-- (One representative product per category in this dataset.)
+-- Returns empty result set if category not found.
+--
+-- PgAdmin: SELECT * FROM get_product_by_category('Pizza');
+-- App:     SELECT * FROM get_product_by_category($1)
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION get_product_by_category(p_category VARCHAR)
+RETURNS TABLE (
+    out_product_id   INTEGER,
+    out_name         VARCHAR,
+    out_description  TEXT,
+    out_price        NUMERIC,
+    out_category     VARCHAR,
+    out_is_available BOOLEAN
+)
+LANGUAGE plpgsql STABLE AS $$
+BEGIN
+    RETURN QUERY
+        SELECT p.product_id, p.name, p.description, p.price, p.category, p.is_available
+          FROM product p
+         WHERE p.category = p_category
+         LIMIT 1;
+END;
+$$;
+
+
+-- -----------------------------------------------------------------------------
+-- update_product_availability
+-- Toggles is_available on a product and returns the updated row.
+-- Raises an error if the product does not exist.
+-- OUT columns carry the updated product row back to the caller.
+--
+-- PgAdmin: CALL update_product_availability(1, false, NULL, NULL, NULL, NULL);
+-- App:     CALL update_product_availability($1, $2, NULL, NULL, NULL, NULL)
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE PROCEDURE update_product_availability(
+    IN  p_product_id    INTEGER,
+    IN  p_is_available  BOOLEAN,
+    OUT p_out_id        INTEGER,
+    OUT p_out_name      VARCHAR,
+    OUT p_out_category  VARCHAR,
+    OUT p_out_available BOOLEAN
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM product p WHERE p.product_id = p_product_id) THEN
+        RAISE EXCEPTION 'PRODUCT_NOT_FOUND: Product % does not exist.', p_product_id;
+    END IF;
+
+    UPDATE product p
+       SET is_available = p_is_available
+     WHERE p.product_id = p_product_id
+    RETURNING p.product_id, p.name, p.category, p.is_available
+         INTO p_out_id, p_out_name, p_out_category, p_out_available;
+END;
+$$;
+
+
+-- =============================================================================
+-- SALE ORDER PROCEDURES & FUNCTIONS
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- place_order
+-- Creates a new sale_order and a single sale_order_item atomically.
+-- Validates that the product exists and is available.
+-- Computes unit_price from the product table, subtotal, and total_amount.
+-- OUT p_order_id — the newly created order's ID.
+--
+-- PgAdmin: CALL place_order(2, 1, 2, '123 Main St', NULL, NULL);
+-- App:     CALL place_order($1, $2, $3, $4, NULL, NULL)
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE PROCEDURE place_order(
+    IN  p_member_id       INTEGER,
+    IN  p_product_id      INTEGER,
+    IN  p_quantity        INTEGER,
+    IN  p_delivery_address TEXT,
+    OUT p_order_id        INTEGER,
+    OUT p_order_item_id   INTEGER
+)
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_unit_price  NUMERIC;
+    v_subtotal    NUMERIC;
+BEGIN
+    -- Validate product exists and is available
+    SELECT p.price INTO v_unit_price
+      FROM product p
+     WHERE p.product_id = p_product_id
+       AND p.is_available = true;
+
+    IF v_unit_price IS NULL THEN
+        RAISE EXCEPTION 'PRODUCT_NOT_FOUND: Product % does not exist or is unavailable.', p_product_id;
+    END IF;
+
+    v_subtotal := v_unit_price * p_quantity;
+
+    -- Insert order
+    INSERT INTO sale_order (member_id, total_amount, status, delivery_address)
+    VALUES (p_member_id, v_subtotal, 'PACKING', p_delivery_address)
+    RETURNING sale_order.order_id INTO p_order_id;
+
+    -- Insert order item
+    INSERT INTO sale_order_item (order_id, product_id, quantity, unit_price, subtotal)
+    VALUES (p_order_id, p_product_id, p_quantity, v_unit_price, v_subtotal)
+    RETURNING sale_order_item.order_item_id INTO p_order_item_id;
+END;
+$$;
+
+
+-- -----------------------------------------------------------------------------
+-- update_order_status
+-- Updates the status of an order.
+-- Validates that the order exists and that the new status value is allowed.
+--
+-- PgAdmin: CALL update_order_status(1, 'COMPLETED');
+-- App:     CALL update_order_status($1, $2)
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE PROCEDURE update_order_status(
+    IN p_order_id INTEGER,
+    IN p_status   VARCHAR
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF p_status NOT IN ('PACKING', 'COMPLETED', 'CANCELLED') THEN
+        RAISE EXCEPTION 'INVALID_STATUS: Status must be PACKING, COMPLETED, or CANCELLED.';
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM sale_order so WHERE so.order_id = p_order_id) THEN
+        RAISE EXCEPTION 'ORDER_NOT_FOUND: Order % does not exist.', p_order_id;
+    END IF;
+
+    UPDATE sale_order so
+       SET status = p_status
+     WHERE so.order_id = p_order_id;
+END;
+$$;
+
+
+-- -----------------------------------------------------------------------------
+-- check_order_ownership
+-- Returns TRUE if the order belongs to the specified member, FALSE otherwise.
+--
+-- PgAdmin: SELECT check_order_ownership(1, 2);
+-- App:     SELECT check_order_ownership($1, $2) AS owned
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION check_order_ownership(
+    p_order_id  INTEGER,
+    p_member_id INTEGER
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql STABLE AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM sale_order so
+         WHERE so.order_id  = p_order_id
+           AND so.member_id = p_member_id
+    );
+END;
+$$;

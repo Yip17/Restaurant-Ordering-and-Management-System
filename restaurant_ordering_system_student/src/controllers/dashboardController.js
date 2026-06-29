@@ -72,8 +72,7 @@ class DashboardController {
 
         } catch (err) {
             console.error('Dashboard error:', err);
-            // Surface user-facing DB errors (e.g. INVALID_STATUS)
-            if (msg.indexOf("INVALID_STATUS") === 0) {
+            if (err.message && err.message.indexOf('INVALID_STATUS') === 0) {
                 return res.status(400).json({ success: false, message: err.message.split(':')[1].trim() });
             }
             res.status(500).json({ success: false, message: 'Failed to load dashboard data.' });

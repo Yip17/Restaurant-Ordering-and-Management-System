@@ -1,8 +1,8 @@
 // controllers/feedbackController.js
 // Validation and access control are enforced in the stored procedures.
 // Controllers handle HTTP concerns: parse input, call model, shape response.
-const Feedback = require('../models/Feedback');
-const pool     = require('../config/database');
+const Feedback  = require('../models/Feedback');
+const SaleOrder = require('../models/SaleOrder');
 
 // Helper: sends a DB user-facing error as a 400, unknown errors as 500
 function handleError(res, err) {
@@ -41,24 +41,17 @@ class FeedbackController {
     }
 
     // GET /feedback/order-item/:orderItemId/eligibility
-    // Checks whether the logged-in member can submit feedback for a specific order item.
-    // Authorization: order item must belong to the member and its order must be COMPLETED.
+    // Uses SaleOrder.getOrderItemStatus() → get_order_item_status() SQL function.
     // Returns: { eligible, alreadyReviewed, reason }
     static async getOrderItemEligibility(req, res) {
         try {
             const memberId    = req.session.userId;
             const orderItemId = req.params.orderItemId;
 
-            const orderCheck = await pool.query(
-                `SELECT so.status
-                   FROM sale_order_item soi
-                   JOIN sale_order so ON so.order_id = soi.order_id
-                  WHERE soi.order_item_id = $1 AND so.member_id = $2`,
-                [orderItemId, memberId]
-            );
+            // Returns the order's status if the item belongs to this member, NULL if not found
+            const status = await SaleOrder.getOrderItemStatus(orderItemId, memberId);
 
-            // Item doesn't exist or doesn't belong to this member
-            if (orderCheck.rows.length === 0) {
+            if (status === null || status === undefined) {
                 return res.status(403).json({
                     success:  false,
                     eligible: false,
@@ -66,7 +59,7 @@ class FeedbackController {
                 });
             }
 
-            if (orderCheck.rows[0].status !== 'COMPLETED') {
+            if (status !== 'COMPLETED') {
                 return res.json({
                     success:  true,
                     eligible: false,

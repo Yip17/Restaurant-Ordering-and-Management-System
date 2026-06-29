@@ -1,48 +1,59 @@
 // models/Member.js
-const pool = require('../config/database');
+// Read ops  → SELECT * FROM stored function
+// Write ops → CALL stored procedure
+// bcrypt stays in Node — it is a JS library, not a DB concern.
+
+const pool   = require('../config/database');
 const bcrypt = require('bcryptjs');
 
 class Member {
-    static async findByUsername(username) {
-        const query = `
-            SELECT m.*, mr.role 
-            FROM member m 
-            LEFT JOIN member_role mr ON m.member_id = mr.member_id 
-            WHERE m.username = $1
-        `;
-        const result = await pool.query(query, [username]);
-        return result.rows[0];
+
+    // Look up a member by email for login — get_member_by_email($1)
+    static async findByEmail(email) {
+        const result = await pool.query(
+            'SELECT * FROM get_member_by_email($1)', [email]
+        );
+        const row = result.rows[0];
+        if (!row) return null;
+        return {
+            member_id:     row.out_member_id,
+            username:      row.out_username,
+            password_hash: row.out_password_hash,
+            role:          row.out_role
+        };
     }
 
+    // Compare a plaintext password against a stored hash
     static async validatePassword(plainPassword, hashedPassword) {
         return await bcrypt.compare(plainPassword, hashedPassword);
     }
 
-    static async create(userData) {
-        const { username, email, password, firstName, lastName, role = 'USER' } = userData;
-        const hashedPassword = await bcrypt.hash(password, 10);
-        
-        const client = await pool.connect();
+    // Register a new member — CALL register_member($1...$6, NULL)
+    // Hash is computed here; the procedure inserts member + role atomically.
+    static async create({ username, email, password, firstName, lastName, role = 'USER' }) {
+        const passwordHash = await bcrypt.hash(password, 10);
         try {
-            await client.query('BEGIN');
-            
-            const memberQuery = `
-                INSERT INTO member (username, email, password_hash, first_name, last_name)
-                VALUES ($1, $2, $3, $4, $5) RETURNING member_id
-            `;
-            const memberResult = await client.query(memberQuery, [username, email, hashedPassword, firstName, lastName]);
-            const memberId = memberResult.rows[0].member_id;
-            
-            const roleQuery = `INSERT INTO member_role (member_id, role) VALUES ($1, $2)`;
-            await client.query(roleQuery, [memberId, role]);
-            
-            await client.query('COMMIT');
-            return memberId;
-        } catch (error) {
-            await client.query('ROLLBACK');
-            throw error;
-        } finally {
-            client.release();
+            const result = await pool.query(
+                'CALL register_member($1, $2, $3, $4, $5, $6, NULL)',
+                [username, email, passwordHash, firstName, lastName, role]
+            );
+            return result.rows[0].p_member_id;
+        } catch (err) {
+            const msg = err.message || "";
+
+            if (msg.indexOf("USERNAME_TAKEN") === 0) {
+                const error = new Error("Username is already taken.");
+                error.code = "USERNAME_TAKEN";
+                throw error;
+            }
+
+            if (msg.indexOf("EMAIL_TAKEN") === 0) {
+                const error = new Error("Email is already registered.");
+                error.code = "EMAIL_TAKEN";
+                throw error;
+            }
+
+            throw err;
         }
     }
 }

@@ -1,127 +1,109 @@
 // models/SaleOrder.js
+// Read ops  → SELECT * FROM stored function
+// Write ops → CALL stored procedure
+
 const pool = require('../config/database');
 
+// Strip the "out_" prefix from keys returned by the plpgsql RETURNS TABLE functions.
 function remapRow(data) {
-    if (data == null) {
-        return data;
+    if (data == null) return data;
+    const result = {};
+    for (const key in data) {
+        result[key.replace('out_', '')] = data[key];
     }
-
-    let result = {};
-
-    for (let key in data) {
-        let newKey = key.replace("out_", "");
-        result[newKey] = data[key];
-    }
-
     return result;
 }
 
 class SaleOrder {
 
-    // Get all orders for a member, with items and product names
+    // All orders for a member — get_member_orders($1)
     static async findByMemberId(memberId) {
         const result = await pool.query(
-            "SELECT * FROM get_member_orders($1)",
-            [memberId]
+            'SELECT * FROM get_member_orders($1)', [memberId]
         );
-
         return result.rows;
     }
 
-    // Place a new order (single product, quantity 1 for simplicity)
+    // Single order by ID — get_order_by_id($1)
+    static async findById(orderId) {
+        const result = await pool.query(
+            'SELECT * FROM get_order_by_id($1)', [orderId]
+        );
+        return result.rows[0] || null;
+    }
+
+    // Place a new order — CALL place_order($1,$2,$3,$4,NULL,NULL)
+    // Procedure validates availability, inserts order + item atomically.
+    // Re-fetches the full order via get_order_by_id so the response shape
+    // matches findByMemberId (includes items JSON).
     static async create({ memberId, productId, quantity, deliveryAddress }) {
-        const client = await pool.connect();
         try {
-            await client.query('BEGIN');
-
-            // Fetch current price
-            const prodResult = await client.query(
-                'SELECT price FROM product WHERE product_id = $1 AND is_available = true',
-                [productId]
+            const result = await pool.query(
+                'CALL place_order($1, $2, $3, $4, NULL, NULL)',
+                [memberId, productId, quantity, deliveryAddress]
             );
-            if (prodResult.rows.length === 0) throw new Error('Product not found or unavailable');
-
-            const unitPrice  = parseFloat(prodResult.rows[0].price);
-            const subtotal   = unitPrice * quantity;
-            const totalAmount = subtotal;
-
-            // Insert order
-            const orderResult = await client.query(
-                `INSERT INTO sale_order (member_id, total_amount, status, delivery_address)
-                 VALUES ($1, $2, 'PACKING', $3) RETURNING *`,
-                [memberId, totalAmount, deliveryAddress]
-            );
-            const order = orderResult.rows[0];
-
-            // Insert order item
-            const itemResult = await client.query(
-                `INSERT INTO sale_order_item (order_id, product_id, quantity, unit_price, subtotal)
-                 VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-                [order.order_id, productId, quantity, unitPrice, subtotal]
-            );
-
-            await client.query('COMMIT');
-            return { ...order, items: [itemResult.rows[0]] };
+            const orderId = result.rows[0].p_order_id;
+            return await SaleOrder.findById(orderId);
         } catch (err) {
-            await client.query('ROLLBACK');
+            const msg = err.message || "";
+            if (msg.indexOf("PRODUCT_NOT_FOUND") === 0) {
+                throw new Error('Product not found or unavailable');
+            }
             throw err;
-        } finally {
-            client.release();
         }
     }
 
-    // Update order status — used by member (CANCELLED) or admin
+    // Update order status — CALL update_order_status($1,$2)
+    // Procedure validates status value and order existence.
+    // Re-fetches the updated row via get_order_by_id.
     static async updateStatus(orderId, status) {
-        const result = await pool.query(
-            `UPDATE sale_order SET status = $1 WHERE order_id = $2 RETURNING *`,
-            [status, orderId]
+        await pool.query(
+            'CALL update_order_status($1, $2)', [orderId, status]
         );
-        return result.rows[0];
+        return await SaleOrder.findById(orderId);
     }
 
-    // Check ownership
+    // Ownership check — check_order_ownership($1,$2)
     static async isOwnedBy(orderId, memberId) {
         const result = await pool.query(
-            'SELECT 1 FROM sale_order WHERE order_id = $1 AND member_id = $2',
-            [orderId, memberId]
+            'SELECT check_order_ownership($1, $2) AS owned', [orderId, memberId]
         );
-        return result.rows.length > 0;
+        return result.rows[0].owned;
     }
 
-    // Check if a member has at least one COMPLETED order containing a product
+    // Boolean: member has a COMPLETED order for a product — has_completed_order_for_product($1,$2)
     static async hasCompletedOrderForProduct(memberId, productId) {
         const result = await pool.query(
-            'SELECT has_completed_order_for_product($1, $2) AS eligible',
-            [memberId, productId]
+            'SELECT has_completed_order_for_product($1, $2) AS eligible', [memberId, productId]
         );
         return result.rows[0].eligible;
     }
 
-    // Get the order_item_id from the most recent completed order for a product
+    // Returns order_item_id from member's most recent completed order for a product
+    // — get_completed_order_item_id($1,$2)
     static async getCompletedOrderItemId(memberId, productId) {
         const result = await pool.query(
-            'SELECT get_completed_order_item_id($1, $2) AS order_item_id',
-            [memberId, productId]
+            'SELECT get_completed_order_item_id($1, $2) AS order_item_id', [memberId, productId]
         );
         return result.rows[0].order_item_id;
     }
 
-    // Dashboard summary — calls get_sale_order_summary (admin-only SQL function).
-    // All filtering, sorting, and aggregation is performed at the database level.
+    // Returns the order status for an item if it belongs to the member, NULL otherwise
+    // — get_order_item_status($1,$2)
+    static async getOrderItemStatus(orderItemId, memberId) {
+        const result = await pool.query(
+            'SELECT get_order_item_status($1, $2) AS status', [orderItemId, memberId]
+        );
+        return result.rows[0].status;
+    }
+
+    // Dashboard summary — get_sale_order_summary($1,$2,$3,$4,$5,$6)
     static async getSummary({ startDate, endDate, category, status, sortBy, sortOrder } = {}) {
         const result = await pool.query(
-            `SELECT * FROM get_sale_order_summary($1, $2, $3, $4, $5, $6)`,
-            [
-                startDate  || null,
-                endDate    || null,
-                category   || null,
-                status     || null,
-                sortBy     || 'order_date',
-                sortOrder  || 'DESC'
-            ]
+            'SELECT * FROM get_sale_order_summary($1, $2, $3, $4, $5, $6)',
+            [startDate || null, endDate || null, category || null,
+             status || null, sortBy || 'order_date', sortOrder || 'DESC']
         );
-        // Strip the "out_" prefix added by the RETURNS TABLE declaration so
-        // downstream code (controller, dashboard JS) sees clean field names.
         return result.rows.map(remapRow);
     }
 }
