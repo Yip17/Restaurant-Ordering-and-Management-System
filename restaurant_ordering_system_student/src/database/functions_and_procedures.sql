@@ -645,48 +645,6 @@ END;
 $$;
 
 
--- Returns order summary for the admin dashboard with optional filters.
--- Pass NULL to skip a filter.
--- PgAdmin:
---   SELECT * FROM get_order_summary(NULL, NULL, NULL);
---   SELECT * FROM get_order_summary('2024-01-01'::date, '2024-12-31'::date, 'Pizza');
-CREATE OR REPLACE FUNCTION get_order_summary(
-    p_start_date DATE,
-    p_end_date   DATE,
-    p_category   VARCHAR
-)
-RETURNS TABLE (
-    out_order_id         INTEGER,
-    out_customer_name    TEXT,
-    out_order_date       TIMESTAMP,
-    out_total_amount     NUMERIC,
-    out_status           VARCHAR,
-    out_product_count    BIGINT,
-    out_products_ordered TEXT
-)
-LANGUAGE plpgsql STABLE AS $$
-BEGIN
-    RETURN QUERY
-        SELECT so.order_id,
-               m.first_name || ' ' || m.last_name AS customer_name,
-               so.order_date,
-               so.total_amount,
-               so.status,
-               COUNT(soi.order_item_id)::BIGINT,
-               STRING_AGG(p.name, ', ')
-        FROM sale_order so
-        JOIN member m ON m.member_id = so.member_id
-        JOIN sale_order_item soi ON soi.order_id = so.order_id
-        JOIN product p ON p.product_id = soi.product_id
-        WHERE (p_start_date IS NULL OR DATE(so.order_date) >= p_start_date)
-          AND (p_end_date   IS NULL OR DATE(so.order_date) <= p_end_date)
-          AND (p_category   IS NULL OR p.category = p_category)
-        GROUP BY so.order_id, m.first_name, m.last_name,
-                 so.order_date, so.total_amount, so.status;
-END;
-$$;
-
-
 -- Returns all orders placed by a member, including their order items
 -- and product details as a JSON array.
 --
@@ -738,3 +696,4 @@ BEGIN
     ORDER BY so.order_date DESC;
 END;
 $$;
+
