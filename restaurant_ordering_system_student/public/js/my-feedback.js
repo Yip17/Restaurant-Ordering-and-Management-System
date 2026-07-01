@@ -48,8 +48,8 @@ async function loadMyFeedback() {
     return;
   }
 
-  data.feedback.forEach((fb, idx) => {
-    tbody.insertAdjacentHTML('beforeend', buildRow(fb, idx + 1));
+  data.feedback.forEach(function (fb, idx) {
+      tbody.innerHTML += buildRow(fb, idx + 1);
   });
 
   tableWrap.style.display = 'block';
@@ -102,7 +102,7 @@ async function handleEditSubmit(e) {
   e.preventDefault();
 
   const feedbackId = document.getElementById('edit-feedback-id').value;
-  const rating     = parseInt(document.getElementById('edit-rating').value, 10);
+  const rating     = Number(document.getElementById('edit-rating').value);  
   const comment    = document.getElementById('edit-comment').value.trim();
   const modalErr   = document.getElementById('modal-error');
   const saveBtn    = document.getElementById('edit-save-btn');

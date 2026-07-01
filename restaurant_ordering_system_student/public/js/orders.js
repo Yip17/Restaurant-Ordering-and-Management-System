@@ -41,7 +41,7 @@ function buildOrderCard(order) {
 
   const itemsHtml = order.items.map(item => `
     <tr>
-      <td>${escHtml(item.product_name)}</td>
+      <td>${escapeHtml(item.product_name)}</td>
       <td>${item.quantity}</td>
       <td>$${parseFloat(item.unit_price).toFixed(2)}</td>
       <td>$${parseFloat(item.subtotal).toFixed(2)}</td>
@@ -66,7 +66,7 @@ function buildOrderCard(order) {
       </span>
     </div>
     <div class="card-body">
-      <p class="mb-2"><strong>Delivery to:</strong> ${escHtml(order.delivery_address || '—')}</p>
+      <p class="mb-2"><strong>Delivery to:</strong> ${escapeHtml(order.delivery_address || '—')}</p>
       <div class="table-responsive">
         <table class="table table-sm align-middle mb-2">
           <thead>
@@ -99,7 +99,7 @@ function cancelOrder(orderId) {
   );
 }
 
-function escHtml(str) {
+function escapeHtml(str) {
   if (!str) return '';
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
