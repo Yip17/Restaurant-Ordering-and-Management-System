@@ -1,39 +1,37 @@
 // public/js/dashboard.js
 // Drives the admin dashboard page.
-// All data comes from GET /api/dashboard → DashboardController.index
-//                                        → SaleOrder.getSummary()
-//                                        → get_sale_order_summary() [SQL function]
+
+// Wraps fetchMethod in a Promise so async/await flow is preserved.
+// Resolves with { status, data } — status is the HTTP code, data is the JSON body.
+function apiFetch(url, method = 'GET', body = null) {
+  return new Promise((resolve) => {
+    fetchMethod(url, (status, data) => resolve({ status, data }), method, body);
+  });
+}
 
 document.addEventListener('DOMContentLoaded', function () {
     loadDashboardData();
     setupFilterForm();
 });
 
-// ── Load dashboard data from the API ────────────────────────────────────────
 function loadDashboardData() {
     const urlParams = new URLSearchParams(window.location.search);
 
-    fetch(`/api/dashboard?${urlParams.toString()}`)
-        .then(res => res.json())
-        .then(data => {
-            if (!data.success) {
-                showDashboardError(data.message || 'Failed to load dashboard data.');
-                return;
-            }
-            hideDashboardError();
-            updateUserWelcome(data.user);
-            updateStatCards(data.stats);
-            populateCategories(data.categories);
-            restoreFilters(data.filters);
-            displayOrders(data.orders);
-            // Load product feedback when a category filter is active
-            loadProductFeedback(data.filters.category || null);
-        })
-        .catch(() => showDashboardError('Could not connect to the server.'));
+    fetchMethod(`/api/dashboard?${urlParams.toString()}`, (status, data) => {
+        if (!data.success) {
+            showDashboardError(data.message || 'Failed to load dashboard data.');
+            return;
+        }
+        hideDashboardError();
+        updateUserWelcome(data.user);
+        updateStatCards(data.stats);
+        populateCategories(data.categories);
+        restoreFilters(data.filters);
+        displayOrders(data.orders);
+        loadProductFeedback(data.filters.category || null);
+    });
 }
 
-// ── Stat cards ───────────────────────────────────────────────────────────────
-// Reflects the FILTERED result set so stats always match what is shown in the table.
 function updateStatCards(stats) {
     if (!stats) return;
     document.getElementById('stat-total-orders').textContent = stats.totalOrders;
@@ -43,7 +41,6 @@ function updateStatCards(stats) {
     document.getElementById('stat-cancelled').textContent = stats.statusCounts.CANCELLED;
 }
 
-// ── Order table ──────────────────────────────────────────────────────────────
 function displayOrders(orders) {
     const tbody          = document.getElementById('orders-tbody');
     const noOrders       = document.getElementById('no-orders');
@@ -95,37 +92,28 @@ function displayOrders(orders) {
     `).join('');
 }
 
-// ── Update a single order's status ──────────────────────────────────────────
-// PUT /orders/:id/status → OrderController.updateStatus
-// Admin bypass: controller allows any status change for ADMIN role.
-async function updateOrderStatus(orderId) {
+function updateOrderStatus(orderId) {
     const select    = document.getElementById(`status-select-${orderId}`);
     const newStatus = select.value;
 
-    try {
-        const res  = await fetch(`/orders/${orderId}/status`, {
-            method:  'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ status: newStatus })
-        });
-        const data = await res.json();
-
-        if (data.success) {
-            // Update badge in place — no full reload needed
-            const badge = document.getElementById(`badge-${orderId}`);
-            if (badge) {
-                badge.className   = `badge bg-${getStatusBadgeClass(newStatus)}`;
-                badge.textContent = newStatus;
+    fetchMethod(
+        `/orders/${orderId}/status`,
+        (status, data) => {
+            if (data.success) {
+                const badge = document.getElementById(`badge-${orderId}`);
+                if (badge) {
+                    badge.className   = `badge bg-${getStatusBadgeClass(newStatus)}`;
+                    badge.textContent = newStatus;
+                }
+            } else {
+                alert(data.message || 'Failed to update order status.');
             }
-        } else {
-            alert(data.message || 'Failed to update order status.');
-        }
-    } catch (_) {
-        alert('An error occurred while updating the order.');
-    }
+        },
+        'PUT',
+        { status: newStatus }
+    );
 }
 
-// ── Filter form ──────────────────────────────────────────────────────────────
 function setupFilterForm() {
     const form = document.getElementById('filter-form');
     form.addEventListener('submit', function (e) {
@@ -150,8 +138,6 @@ function clearFilters() {
     loadDashboardData();
 }
 
-// Restore filter inputs to match what the API actually used
-// (handles browser back/forward and direct URL entry)
 function restoreFilters(filters) {
     if (!filters) return;
     if (filters.start_date) document.getElementById('start_date').value = filters.start_date;
@@ -162,11 +148,8 @@ function restoreFilters(filters) {
     if (filters.sort_order) document.getElementById('sort_order').value = filters.sort_order;
 }
 
-// Populate category dropdown from the API response
-// Guard against adding duplicates on repeated loads
 function populateCategories(categories) {
     const select = document.getElementById('category');
-    // Remove everything except the first "All Categories" option
     while (select.options.length > 1) select.remove(1);
     (categories || []).forEach(cat => {
         const opt = document.createElement('option');
@@ -174,12 +157,10 @@ function populateCategories(categories) {
         opt.textContent = cat;
         select.appendChild(opt);
     });
-    // Re-apply selected value if a filter is active
     const params = new URLSearchParams(window.location.search);
     if (params.get('category')) select.value = params.get('category');
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
 function updateUserWelcome(user) {
     const el = document.getElementById('user-welcome');
     if (el && user) el.textContent = `Welcome, ${user.name} (Admin)`;
@@ -209,43 +190,24 @@ function hideDashboardError() {
 function escapeHtml(str) {
     if (!str) return '';
     return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-// Reload on browser back/forward
 window.addEventListener('popstate', loadDashboardData);
 
 // =============================================================================
 // PRODUCT FEEDBACK SECTION
-// Shown when admin filters by category. Loads all feedback for the matching
-// product and lets the admin post follow-up responses.
-//
-// Flow:
-//   GET /api/dashboard/product-feedback?category=X
-//     → resolves product_id from category
-//     → SELECT * FROM get_feedback_by_product(product_id)
-//     → for each feedback: SELECT * FROM get_response(feedback_id)
-//   POST /feedback/:feedbackId/responses
-//     → CALL create_response(feedbackId, adminMemberId, text, NULL)
-//     → procedure allows any member who is NOT the feedback author to respond
-//   DELETE /feedback/responses/:id
-//     → CALL delete_response(responseId, adminMemberId)
-//     → procedure validates admin owns that response
 // =============================================================================
 
 async function loadProductFeedback(category) {
-    const section    = document.getElementById('feedback-section');
-    const loading    = document.getElementById('feedback-loading');
-    const errEl      = document.getElementById('feedback-section-error');
-    const noFbEl     = document.getElementById('no-product-feedback');
-    const listEl     = document.getElementById('product-feedback-list');
-    const titleEl    = document.getElementById('feedback-section-title');
+    const section  = document.getElementById('feedback-section');
+    const loading  = document.getElementById('feedback-loading');
+    const errEl    = document.getElementById('feedback-section-error');
+    const noFbEl   = document.getElementById('no-product-feedback');
+    const listEl   = document.getElementById('product-feedback-list');
+    const titleEl  = document.getElementById('feedback-section-title');
 
-    // Hide section entirely when no category is selected
     if (!category) {
         section.style.display = 'none';
         return;
@@ -258,137 +220,105 @@ async function loadProductFeedback(category) {
     listEl.innerHTML        = '';
     titleEl.textContent     = `Product Feedback — ${category}`;
 
-    try {
-        const res  = await fetch(`/api/dashboard/product-feedback?category=${encodeURIComponent(category)}`);
-        const data = await res.json();
+    const { data } = await apiFetch(
+        `/api/dashboard/product-feedback?category=${encodeURIComponent(category)}`
+    );
 
-        loading.style.display = 'none';
+    loading.style.display = 'none';
 
-        if (!data.success) {
-            errEl.textContent   = data.message || 'Failed to load feedback.';
-            errEl.style.display = 'block';
-            return;
-        }
-
-        if (!data.product) {
-            noFbEl.textContent   = `No product found for category "${escapeHtml(category)}".`;
-            noFbEl.style.display = 'block';
-            return;
-        }
-
-        titleEl.textContent = `Product Feedback — ${escapeHtml(data.product.name)} (${escapeHtml(category)})`;
-
-        // Render availability toggle with current state
-        renderAvailabilityToggle(data.product);
-
-        if (!data.feedback || data.feedback.length === 0) {
-            noFbEl.style.display = 'block';
-            return;
-        }
-
-        // Get current admin's member ID for response ownership checks
-        const authRes  = await fetch('/api/auth/status');
-        const authData = await authRes.json();
-        const adminId  = authData.authenticated ? authData.user.id : null;
-
-        data.feedback.forEach(fb => {
-            listEl.appendChild(buildAdminFeedbackCard(fb, adminId));
-        });
-
-    } catch (_) {
-        loading.style.display = 'none';
-        errEl.textContent     = 'Failed to load product feedback.';
-        errEl.style.display   = 'block';
+    if (!data.success) {
+        errEl.textContent   = data.message || 'Failed to load feedback.';
+        errEl.style.display = 'block';
+        return;
     }
+
+    if (!data.product) {
+        noFbEl.textContent   = `No product found for category "${escapeHtml(category)}".`;
+        noFbEl.style.display = 'block';
+        return;
+    }
+
+    titleEl.textContent = `Product Feedback — ${escapeHtml(data.product.name)} (${escapeHtml(category)})`;
+    renderAvailabilityToggle(data.product);
+
+    if (!data.feedback || data.feedback.length === 0) {
+        noFbEl.style.display = 'block';
+        return;
+    }
+
+    const { data: authData } = await apiFetch('/api/auth/status');
+    const adminId = authData.authenticated ? authData.user.id : null;
+
+    data.feedback.forEach(fb => {
+        listEl.appendChild(buildAdminFeedbackCard(fb, adminId));
+    });
 }
 
 // =============================================================================
 // PRODUCT AVAILABILITY TOGGLE
-// Admin can mark a product Available / Unavailable from the dashboard.
-// When unavailable, SaleOrder.create() blocks new orders server-side because
-// it checks is_available = true — no extra gate needed in the front-end.
 // =============================================================================
 
-// Tracks the currently displayed product so the toggle button knows which ID to patch.
 let _currentProduct = null;
 
-// Render the availability badge and toggle button with the product's current state.
 function renderAvailabilityToggle(product) {
     _currentProduct = product;
 
-    const badge  = document.getElementById('product-availability-badge');
-    const btn    = document.getElementById('toggle-availability-btn');
+    const badge = document.getElementById('product-availability-badge');
+    const btn   = document.getElementById('toggle-availability-btn');
 
     if (product.is_available) {
-        badge.textContent  = 'Available';
-        badge.className    = 'badge bg-success';
-        btn.textContent    = 'Mark Unavailable';
-        btn.className      = 'btn btn-sm btn-outline-danger';
+        badge.textContent = 'Available';
+        badge.className   = 'badge bg-success';
+        btn.textContent   = 'Mark Unavailable';
+        btn.className     = 'btn btn-sm btn-outline-danger';
     } else {
-        badge.textContent  = 'Unavailable';
-        badge.className    = 'badge bg-secondary';
-        btn.textContent    = 'Mark Available';
-        btn.className      = 'btn btn-sm btn-outline-success';
+        badge.textContent = 'Unavailable';
+        badge.className   = 'badge bg-secondary';
+        btn.textContent   = 'Mark Available';
+        btn.className     = 'btn btn-sm btn-outline-success';
     }
 
     btn.style.display = '';
 }
 
-// PATCH /api/dashboard/product-availability
-// Flips is_available and refreshes the badge + button without reloading the page.
 async function toggleProductAvailability() {
     if (!_currentProduct) return;
 
-    const btn        = document.getElementById('toggle-availability-btn');
-    const newValue   = !_currentProduct.is_available;
-    const label      = newValue ? 'available' : 'unavailable';
+    const btn      = document.getElementById('toggle-availability-btn');
+    const newValue = !_currentProduct.is_available;
+    const label    = newValue ? 'available' : 'unavailable';
 
     if (!confirm(`Mark "${escapeHtml(_currentProduct.name)}" as ${label}?`)) return;
 
     btn.disabled = true;
 
-    try {
-        const res  = await fetch('/api/dashboard/product-availability', {
-            method:  'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({
-                product_id:   _currentProduct.product_id,
-                is_available: newValue
-            })
-        });
-        const data = await res.json();
+    const { data } = await apiFetch(
+        '/api/dashboard/product-availability',
+        'PATCH',
+        { product_id: _currentProduct.product_id, is_available: newValue }
+    );
 
-        if (data.success) {
-            // Update local state and re-render the badge/button
-            renderAvailabilityToggle(data.product);
-        } else {
-            alert(data.message || 'Failed to update product availability.');
-        }
-    } catch (_) {
-        alert('An error occurred.');
+    if (data.success) {
+        renderAvailabilityToggle(data.product);
+    } else {
+        alert(data.message || 'Failed to update product availability.');
     }
 
     btn.disabled = false;
 }
 
-// Build a single feedback card for the admin view.
-// Shows full feedback detail, all responses, and a follow-up response form.
 function buildAdminFeedbackCard(fb, adminId) {
     const card = document.createElement('div');
     card.className = 'card mb-3 border-start border-3 border-info';
     card.id = `admin-fb-card-${fb.feedback_id}`;
 
-    // Build star display
     let stars = '';
     for (let i = 1; i <= 5; i++) {
         stars += `<span class="${i <= fb.rating ? 'text-warning' : 'text-muted'}">★</span>`;
     }
 
-    // Build responses HTML
     const responsesHtml = buildResponsesHtml(fb.responses || [], adminId, fb.feedback_id);
 
-    // Admin is never the feedback author (different role), so the response form
-    // is always shown. The create_response procedure enforces this at DB level too.
     card.innerHTML = `
         <div class="card-body">
             <div class="d-flex justify-content-between align-items-start mb-1">
@@ -400,23 +330,17 @@ function buildAdminFeedbackCard(fb, adminId) {
                 </div>
                 <span class="badge bg-secondary">Feedback #${fb.feedback_id}</span>
             </div>
-
             <p class="mb-2 mt-1">${escapeHtml(fb.comment || '')}</p>
-
-            <!-- Responses -->
             <div id="admin-responses-${fb.feedback_id}"
                  class="ms-3 border-start border-2 ps-3 mb-2">
                 ${responsesHtml}
             </div>
-
-            <!-- Admin follow-up response form -->
             <div class="mt-2">
                 <label class="form-label small text-muted fw-semibold">Admin Follow-up Response</label>
                 <div class="input-group input-group-sm">
                     <input type="text" class="form-control"
                            id="admin-resp-input-${fb.feedback_id}"
-                           placeholder="Write a follow-up response…"
-                           maxlength="500">
+                           placeholder="Write a follow-up response…" maxlength="500">
                     <button class="btn btn-outline-primary"
                             onclick="adminSubmitResponse(${fb.feedback_id})">Send</button>
                 </div>
@@ -428,7 +352,6 @@ function buildAdminFeedbackCard(fb, adminId) {
     return card;
 }
 
-// Build the HTML for all responses inside a feedback card.
 function buildResponsesHtml(responses, adminId, feedbackId) {
     if (!responses || responses.length === 0) {
         return '<small class="text-muted">No responses yet.</small>';
@@ -454,77 +377,49 @@ function buildResponsesHtml(responses, adminId, feedbackId) {
     }).join('');
 }
 
-// POST /feedback/:feedbackId/responses
-// Admin submits a follow-up response to a feedback entry.
-// The create_response procedure validates that admin is not the feedback author.
 async function adminSubmitResponse(feedbackId) {
     const input   = document.getElementById(`admin-resp-input-${feedbackId}`);
     const errorEl = document.getElementById(`admin-resp-error-${feedbackId}`);
     const text    = input.value.trim();
 
     errorEl.textContent = '';
+    if (!text) { errorEl.textContent = 'Response cannot be empty.'; return; }
 
-    if (!text) {
-        errorEl.textContent = 'Response cannot be empty.';
-        return;
-    }
+    const { data } = await apiFetch(
+        `/feedback/${feedbackId}/responses`,
+        'POST',
+        { response_text: text }
+    );
 
-    try {
-        const res  = await fetch(`/feedback/${feedbackId}/responses`, {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ response_text: text })
-        });
-        const data = await res.json();
-
-        if (data.success) {
-            input.value = '';
-            // Reload the responses block for this card
-            await refreshAdminResponses(feedbackId);
-        } else {
-            errorEl.textContent = data.message || 'Failed to submit response.';
-        }
-    } catch (_) {
-        errorEl.textContent = 'An error occurred.';
+    if (data.success) {
+        input.value = '';
+        await refreshAdminResponses(feedbackId);
+    } else {
+        errorEl.textContent = data.message || 'Failed to submit response.';
     }
 }
 
-// DELETE /feedback/responses/:id
-// Admin deletes their own response.
 async function adminDeleteResponse(responseId, feedbackId) {
     if (!confirm('Delete this response?')) return;
-    try {
-        const res  = await fetch(`/feedback/responses/${responseId}`, { method: 'DELETE' });
-        const data = await res.json();
-        if (data.success) {
-            await refreshAdminResponses(feedbackId);
-        } else {
-            alert(data.message || 'Failed to delete response.');
-        }
-    } catch (_) {
-        alert('An error occurred.');
+    const { data } = await apiFetch(`/feedback/responses/${responseId}`, 'DELETE');
+    if (data.success) {
+        await refreshAdminResponses(feedbackId);
+    } else {
+        alert(data.message || 'Failed to delete response.');
     }
 }
 
-// Reload the responses block for a single feedback card after a change.
 async function refreshAdminResponses(feedbackId) {
     const container = document.getElementById(`admin-responses-${feedbackId}`);
     if (!container) return;
 
-    try {
-        const authRes  = await fetch('/api/auth/status');
-        const authData = await authRes.json();
-        const adminId  = authData.authenticated ? authData.user.id : null;
+    const { data: authData } = await apiFetch('/api/auth/status');
+    const adminId = authData.authenticated ? authData.user.id : null;
 
-        const res  = await fetch(`/feedback/${feedbackId}/responses`);
-        const data = await res.json();
-
-        container.innerHTML = buildResponsesHtml(
-            data.success ? data.responses : [],
-            adminId,
-            feedbackId
-        );
-    } catch (_) {
-        container.innerHTML = '<small class="text-danger">Could not reload responses.</small>';
-    }
+    const { data } = await apiFetch(`/feedback/${feedbackId}/responses`);
+    container.innerHTML = buildResponsesHtml(
+        data.success ? data.responses : [],
+        adminId,
+        feedbackId
+    );
 }

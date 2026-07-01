@@ -1,13 +1,8 @@
 // public/js/products.js
 // Drives products.html — member product listing
 
-document.addEventListener('DOMContentLoaded', fetchProducts);
-
-async function fetchProducts() {
-  try {
-    const response = await fetch('/products');
-    const data     = await response.json();
-
+document.addEventListener('DOMContentLoaded', () => {
+  fetchMethod('/products', (status, data) => {
     const tbody      = document.getElementById('product-table-body');
     const noProducts = document.getElementById('no-products');
 
@@ -38,9 +33,5 @@ async function fetchProducts() {
         </td>`;
       tbody.appendChild(row);
     });
-
-  } catch (error) {
-    console.error('Error fetching products:', error);
-    alert('Failed to load products.');
-  }
-}
+  });
+});

@@ -1,15 +1,19 @@
 // public/js/orders.js
 // Drives orders.html — member's order list with cancel action
 
-document.addEventListener('DOMContentLoaded', async () => {
-  try {
-    const r = await fetch('/api/auth/status');
-    const d = await r.json();
-    if (d.authenticated) {
-      document.getElementById('nav-username').textContent = `Welcome, ${d.user.name}`;
-    }
-  } catch (_) {}
+// Wraps fetchMethod in a Promise so async/await flow is preserved.
+// Resolves with { status, data } — status is the HTTP code, data is the JSON body.
+function apiFetch(url, method = 'GET', body = null) {
+  return new Promise((resolve) => {
+    fetchMethod(url, (status, data) => resolve({ status, data }), method, body);
+  });
+}
 
+document.addEventListener('DOMContentLoaded', async () => {
+  const { data: auth } = await apiFetch('/api/auth/status');
+  if (auth.authenticated) {
+    document.getElementById('nav-username').textContent = `Welcome, ${auth.user.name}`;
+  }
   loadOrders();
 });
 
@@ -19,25 +23,16 @@ async function loadOrders() {
   const list     = document.getElementById('orders-list');
   const errEl    = document.getElementById('error-message');
 
-  try {
-    const res  = await fetch('/orders/my');
-    const data = await res.json();
+  const { data } = await apiFetch('/orders/my');
+  loading.style.display = 'none';
 
-    loading.style.display = 'none';
-
-    if (!data.success || data.orders.length === 0) {
-      noOrders.style.display = 'block';
-      return;
-    }
-
-    list.innerHTML = '';
-    data.orders.forEach(order => list.appendChild(buildOrderCard(order)));
-
-  } catch (_) {
-    loading.style.display = 'none';
-    errEl.textContent     = 'Failed to load orders.';
-    errEl.style.display   = 'block';
+  if (!data.success || data.orders.length === 0) {
+    noOrders.style.display = 'block';
+    return;
   }
+
+  list.innerHTML = '';
+  data.orders.forEach(order => list.appendChild(buildOrderCard(order)));
 }
 
 function buildOrderCard(order) {
@@ -75,9 +70,7 @@ function buildOrderCard(order) {
       <div class="table-responsive">
         <table class="table table-sm align-middle mb-2">
           <thead>
-            <tr>
-              <th>Product</th><th>Qty</th><th>Unit Price</th><th>Subtotal</th><th>Action</th>
-            </tr>
+            <tr><th>Product</th><th>Qty</th><th>Unit Price</th><th>Subtotal</th><th>Action</th></tr>
           </thead>
           <tbody>${itemsHtml}</tbody>
         </table>
@@ -93,18 +86,17 @@ function buildOrderCard(order) {
   return div;
 }
 
-async function cancelOrder(orderId) {
+function cancelOrder(orderId) {
   if (!confirm('Cancel this order?')) return;
-  try {
-    const res  = await fetch(`/orders/${orderId}/status`, {
-      method:  'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ status: 'CANCELLED' })
-    });
-    const data = await res.json();
-    if (data.success) { loadOrders(); }
-    else { alert(data.message || 'Failed to cancel order.'); }
-  } catch (_) { alert('An error occurred.'); }
+  fetchMethod(
+    `/orders/${orderId}/status`,
+    (status, data) => {
+      if (data.success) { loadOrders(); }
+      else { alert(data.message || 'Failed to cancel order.'); }
+    },
+    'PUT',
+    { status: 'CANCELLED' }
+  );
 }
 
 function escHtml(str) {

@@ -1,6 +1,5 @@
 // public/js/main.js
 
-
 /* =========================
    UTILITIES
    ========================= */
@@ -18,40 +17,30 @@ function createStarRating(rating) {
 }
 
 /* =========================
-   LOGIN LOGIC 
+   LOGIN LOGIC
    ========================= */
 document.addEventListener('DOMContentLoaded', () => {
   const loginForm = document.getElementById('loginForm');
-
   if (!loginForm) return;
 
-  loginForm.addEventListener('submit', async (e) => {
+  loginForm.addEventListener('submit', (e) => {
     e.preventDefault();
 
-    const email = document.getElementById('email').value.trim();
+    const email    = document.getElementById('email').value.trim();
     const password = document.getElementById('password').value.trim();
+    const errEl    = document.getElementById('error-message');
 
-    try{
-      const response = await fetch('/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ email, password })
-      });
-
-      const data = await response.json();
-      console.log('Login response:', data);
-
-      if (data.success && data.redirectUrl){
+    fetchMethod('/login', (status, data) => {
+      if (data.success && data.redirectUrl) {
         window.location.href = data.redirectUrl;
       } else {
-        alert(data.message ||  'Login failed');
+        if (errEl) {
+          errEl.textContent   = data.message || 'Login failed.';
+          errEl.style.display = 'block';
+        } else {
+          alert(data.message || 'Login failed.');
+        }
       }
-
-    } catch(err){
-      console.error('Login error:', err);
-      alert('An error occurred during login');
-    }
+    }, 'POST', { email, password });
   });
 });

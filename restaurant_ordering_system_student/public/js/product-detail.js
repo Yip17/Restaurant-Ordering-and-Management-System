@@ -1,26 +1,26 @@
 // public/js/product-detail.js
 // Drives product-detail.html
-// Handles: product info, place order, feedback list + responses
 
-// ── State ─────────────────────────────────────────────────────────────────
+// Wraps fetchMethod in a Promise so async/await flow is preserved.
+// Resolves with { status, data } — status is the HTTP code, data is the JSON body.
+function apiFetch(url, method = 'GET', body = null) {
+  return new Promise((resolve) => {
+    fetchMethod(url, (status, data) => resolve({ status, data }), method, body);
+  });
+}
+
 let currentProductId = null;
 let currentUserId    = null;
 
-// ── Boot ──────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
-  try {
-    const r = await fetch('/api/auth/status');
-    const d = await r.json();
-    if (d.authenticated) {
-      currentUserId = d.user.id;
-      document.getElementById('nav-username').textContent = `Welcome, ${d.user.name}`;
-    }
-  } catch (_) {}
-
+  const { data: auth } = await apiFetch('/api/auth/status');
+  if (auth.authenticated) {
+    currentUserId = auth.user.id;
+    document.getElementById('nav-username').textContent = `Welcome, ${auth.user.name}`;
+  }
   await fetchProductDetail();
 });
 
-// ── Product detail ────────────────────────────────────────────────────────
 async function fetchProductDetail() {
   const params     = new URLSearchParams(window.location.search);
   currentProductId = params.get('id');
@@ -35,45 +35,35 @@ async function fetchProductDetail() {
     return;
   }
 
-  try {
-    const res  = await fetch(`/products/${currentProductId}`);
-    const data = await res.json();
-    loading.style.display = 'none';
+  const { data } = await apiFetch(`/products/${currentProductId}`);
+  loading.style.display = 'none';
 
-    if (!data.success || !data.product) {
-      errEl.style.display = 'block';
-      return;
-    }
-
-    const p = data.product;
-    document.title = `${p.name} - Restaurant`;
-    document.getElementById('detail-name').textContent        = p.name;
-    document.getElementById('detail-category').textContent    = p.category    || '—';
-    document.getElementById('detail-description').textContent = p.description || '—';
-    document.getElementById('detail-price').textContent       = `$${parseFloat(p.price).toFixed(2)}`;
-    document.getElementById('detail-created-at').textContent  = new Date(p.created_at).toLocaleDateString();
-    document.getElementById('detail-status').innerHTML = `
-      <span class="badge ${p.is_available ? 'bg-success' : 'bg-secondary'}">
-        ${p.is_available ? 'Available' : 'Unavailable'}
-      </span>`;
-
-    if (!p.is_available) {
-      document.getElementById('order-card').style.display = 'none';
-    }
-
-    detail.style.display = 'block';
-
-    document.getElementById('order-form').addEventListener('submit', handleOrderSubmit);
-    await loadFeedbackSection();
-
-  } catch (err) {
-    console.error(err);
-    loading.style.display = 'none';
-    errEl.style.display   = 'block';
+  if (!data.success || !data.product) {
+    errEl.style.display = 'block';
+    return;
   }
+
+  const p = data.product;
+  document.title = `${p.name} - Restaurant`;
+  document.getElementById('detail-name').textContent        = p.name;
+  document.getElementById('detail-category').textContent    = p.category    || '—';
+  document.getElementById('detail-description').textContent = p.description || '—';
+  document.getElementById('detail-price').textContent       = `$${parseFloat(p.price).toFixed(2)}`;
+  document.getElementById('detail-created-at').textContent  = new Date(p.created_at).toLocaleDateString();
+  document.getElementById('detail-status').innerHTML = `
+    <span class="badge ${p.is_available ? 'bg-success' : 'bg-secondary'}">
+      ${p.is_available ? 'Available' : 'Unavailable'}
+    </span>`;
+
+  if (!p.is_available) {
+    document.getElementById('order-card').style.display = 'none';
+  }
+
+  detail.style.display = 'block';
+  document.getElementById('order-form').addEventListener('submit', handleOrderSubmit);
+  await loadFeedbackSection();
 }
 
-// ── Order form ────────────────────────────────────────────────────────────
 async function handleOrderSubmit(e) {
   e.preventDefault();
   const successEl = document.getElementById('order-success');
@@ -85,29 +75,19 @@ async function handleOrderSubmit(e) {
   btn.disabled    = true;
   btn.textContent = 'Placing order…';
 
-  try {
-    const res  = await fetch('/orders', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        product_id:       currentProductId,
-        quantity:         parseInt(document.getElementById('quantity').value),
-        delivery_address: document.getElementById('delivery-address').value.trim()
-      })
-    });
-    const data = await res.json();
+  const { status, data } = await apiFetch('/orders', 'POST', {
+    product_id:       currentProductId,
+    quantity:         parseInt(document.getElementById('quantity').value),
+    delivery_address: document.getElementById('delivery-address').value.trim()
+  });
 
-    if (data.success) {
-      successEl.innerHTML = `Order placed! Status: <strong>PACKING</strong>.
-        <a href="/orders/my-orders" class="alert-link ms-2">View My Orders →</a>`;
-      successEl.style.display = 'block';
-      document.getElementById('order-form').reset();
-    } else {
-      errorEl.textContent   = data.message || 'Failed to place order.';
-      errorEl.style.display = 'block';
-    }
-  } catch (_) {
-    errorEl.textContent   = 'An error occurred.';
+  if (data.success) {
+    successEl.innerHTML = `Order placed! Status: <strong>PACKING</strong>.
+      <a href="/orders/my-orders" class="alert-link ms-2">View My Orders →</a>`;
+    successEl.style.display = 'block';
+    document.getElementById('order-form').reset();
+  } else {
+    errorEl.textContent   = data.message || 'Failed to place order.';
     errorEl.style.display = 'block';
   }
 
@@ -115,18 +95,10 @@ async function handleOrderSubmit(e) {
   btn.textContent = 'Order Now';
 }
 
-// ── Feedback section ──────────────────────────────────────────────────────
 async function loadFeedbackSection() {
-  await Promise.all([
-    setupWriteFeedbackButton(),
-    loadFeedbackList()
-  ]);
+  await Promise.all([setupWriteFeedbackButton(), loadFeedbackList()]);
 }
 
-// The Write Feedback button on product-detail links to My Orders.
-// Feedback is now per order item — members write feedback from the My Orders page
-// where each completed order item has its own "Write Feedback" link.
-// We still show the button here for discoverability, pointing to My Orders.
 function setupWriteFeedbackButton() {
   const btn = document.getElementById('write-feedback-btn');
   const msg = document.getElementById('feedback-eligibility-msg');
@@ -152,34 +124,24 @@ async function loadFeedbackList() {
   noFb.style.display      = 'none';
   fbList.innerHTML        = '';
 
-  try {
-    const res  = await fetch(`/feedback/${currentProductId}/all`);
-    const data = await res.json();
+  const { data } = await apiFetch(`/feedback/${currentProductId}/all`);
+  fbLoading.style.display = 'none';
 
-    fbLoading.style.display = 'none';
+  if (!data.success) {
+    fbError.textContent   = data.message || 'Failed to load feedback.';
+    fbError.style.display = 'block';
+    return;
+  }
 
-    if (!data.success) {
-      fbError.textContent   = data.message || 'Failed to load feedback.';
-      fbError.style.display = 'block';
-      return;
-    }
+  if (!data.feedback || data.feedback.length === 0) {
+    noFb.style.display = 'block';
+    return;
+  }
 
-    if (!data.feedback || data.feedback.length === 0) {
-      noFb.style.display = 'block';
-      return;
-    }
-
-    for (const fb of data.feedback) {
-      const isOwner = currentUserId && Number(fb.member_id) === Number(currentUserId);
-      const card    = buildFeedbackCard(fb, isOwner);
-      fbList.appendChild(card);
-      loadResponses(fb.feedback_id);
-    }
-
-  } catch (_) {
-    fbLoading.style.display = 'none';
-    fbError.textContent     = 'Failed to load feedback.';
-    fbError.style.display   = 'block';
+  for (const fb of data.feedback) {
+    const isOwner = currentUserId && Number(fb.member_id) === Number(currentUserId);
+    fbList.appendChild(buildFeedbackCard(fb, isOwner));
+    loadResponses(fb.feedback_id);
   }
 }
 
@@ -227,39 +189,32 @@ function buildFeedbackCard(fb, isOwner) {
   return card;
 }
 
-// ── Responses ─────────────────────────────────────────────────────────────
 async function loadResponses(feedbackId) {
   const container = document.getElementById(`responses-${feedbackId}`);
-  try {
-    const res  = await fetch(`/feedback/${feedbackId}/responses`);
-    const data = await res.json();
+  const { data } = await apiFetch(`/feedback/${feedbackId}/responses`);
 
-    if (!data.success || data.responses.length === 0) {
-      container.innerHTML = '<small class="text-muted">No responses yet.</small>';
-      return;
-    }
-
-    container.innerHTML = data.responses.map(r => {
-      const isMine = currentUserId && Number(r.member_id) === Number(currentUserId);
-      return `
-        <div class="d-flex justify-content-between align-items-start mb-1"
-             id="response-row-${r.response_id}">
-          <div>
-            <span class="fw-semibold me-1" style="font-size:0.9rem;">
-              ${escapeHtml(r.username || 'Member')}:
-            </span>
-            <span style="font-size:0.9rem;">${escapeHtml(r.response_text)}</span>
-            <small class="text-muted ms-1">${new Date(r.created_at).toLocaleDateString()}</small>
-          </div>
-          ${isMine ? `
-            <button class="btn btn-link btn-sm text-danger p-0 ms-2"
-                    onclick="deleteResponse(${r.response_id})">Delete</button>` : ''}
-        </div>`;
-    }).join('');
-
-  } catch (_) {
-    container.innerHTML = '<small class="text-danger">Could not load responses.</small>';
+  if (!data.success || data.responses.length === 0) {
+    container.innerHTML = '<small class="text-muted">No responses yet.</small>';
+    return;
   }
+
+  container.innerHTML = data.responses.map(r => {
+    const isMine = currentUserId && Number(r.member_id) === Number(currentUserId);
+    return `
+      <div class="d-flex justify-content-between align-items-start mb-1"
+           id="response-row-${r.response_id}">
+        <div>
+          <span class="fw-semibold me-1" style="font-size:0.9rem;">
+            ${escapeHtml(r.username || 'Member')}:
+          </span>
+          <span style="font-size:0.9rem;">${escapeHtml(r.response_text)}</span>
+          <small class="text-muted ms-1">${new Date(r.created_at).toLocaleDateString()}</small>
+        </div>
+        ${isMine ? `
+          <button class="btn btn-link btn-sm text-danger p-0 ms-2"
+                  onclick="deleteResponse(${r.response_id})">Delete</button>` : ''}
+      </div>`;
+  }).join('');
 }
 
 async function submitResponse(feedbackId) {
@@ -270,46 +225,33 @@ async function submitResponse(feedbackId) {
   errorEl.textContent = '';
   if (!text) { errorEl.textContent = 'Response cannot be empty.'; return; }
 
-  try {
-    const res  = await fetch(`/feedback/${feedbackId}/responses`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ response_text: text })
-    });
-    const data = await res.json();
-    if (data.success) { input.value = ''; loadResponses(feedbackId); }
-    else { errorEl.textContent = data.message || 'Failed to submit response.'; }
-  } catch (_) { errorEl.textContent = 'An error occurred.'; }
+  const { data } = await apiFetch(`/feedback/${feedbackId}/responses`, 'POST', { response_text: text });
+
+  if (data.success) { input.value = ''; loadResponses(feedbackId); }
+  else { errorEl.textContent = data.message || 'Failed to submit response.'; }
 }
 
 async function deleteResponse(responseId) {
   if (!confirm('Delete this response?')) return;
-  try {
-    const res  = await fetch(`/feedback/responses/${responseId}`, { method: 'DELETE' });
-    const data = await res.json();
-    if (data.success) {
-      const row = document.getElementById(`response-row-${responseId}`);
-      if (row) row.remove();
-    } else { alert(data.message || 'Failed to delete response.'); }
-  } catch (_) { alert('An error occurred.'); }
+  const { data } = await apiFetch(`/feedback/responses/${responseId}`, 'DELETE');
+  if (data.success) {
+    const row = document.getElementById(`response-row-${responseId}`);
+    if (row) row.remove();
+  } else { alert(data.message || 'Failed to delete response.'); }
 }
 
 async function deleteFeedback(feedbackId) {
   if (!confirm('Delete this feedback? All responses will also be removed.')) return;
-  try {
-    const res  = await fetch(`/feedback/${feedbackId}`, { method: 'DELETE' });
-    const data = await res.json();
-    if (data.success) {
-      const card = document.getElementById(`feedback-card-${feedbackId}`);
-      if (card) card.remove();
-      if (!document.querySelector('#feedback-list .card')) {
-        document.getElementById('no-feedback').style.display = 'block';
-      }
-    } else { alert(data.message || 'Failed to delete feedback.'); }
-  } catch (_) { alert('An error occurred.'); }
+  const { data } = await apiFetch(`/feedback/${feedbackId}`, 'DELETE');
+  if (data.success) {
+    const card = document.getElementById(`feedback-card-${feedbackId}`);
+    if (card) card.remove();
+    if (!document.querySelector('#feedback-list .card')) {
+      document.getElementById('no-feedback').style.display = 'block';
+    }
+  } else { alert(data.message || 'Failed to delete feedback.'); }
 }
 
-// ── Utilities ─────────────────────────────────────────────────────────────
 function renderStars(rating) {
   let html = '';
   for (let i = 1; i <= 5; i++) {

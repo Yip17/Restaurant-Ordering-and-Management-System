@@ -1,7 +1,7 @@
 // public/js/register.js
 // Drives register.html — member registration form
 
-document.getElementById('registerForm').addEventListener('submit', async (e) => {
+document.getElementById('registerForm').addEventListener('submit', (e) => {
   e.preventDefault();
 
   const errEl     = document.getElementById('error-message');
@@ -32,28 +32,22 @@ document.getElementById('registerForm').addEventListener('submit', async (e) => 
   btn.disabled    = true;
   btn.textContent = 'Creating account…';
 
-  try {
-    const res    = await fetch('/register', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ username, first_name: firstName, last_name: lastName, email, password })
-    });
-    const result = await res.json();
-
-    if (result.success) {
-      successEl.textContent   = 'Registration successful! Redirecting…';
-      successEl.style.display = 'block';
-      setTimeout(() => { window.location.href = result.redirectUrl; }, 800);
-    } else {
-      showError(result.message || 'Registration failed. Please try again.');
-      btn.disabled    = false;
-      btn.textContent = 'Create Account';
-    }
-  } catch (_) {
-    showError('An error occurred. Please try again.');
-    btn.disabled    = false;
-    btn.textContent = 'Create Account';
-  }
+  fetchMethod(
+    '/register',
+    (status, result) => {
+      if (result.success) {
+        successEl.textContent   = 'Registration successful! Redirecting…';
+        successEl.style.display = 'block';
+        setTimeout(() => { window.location.href = result.redirectUrl; }, 800);
+      } else {
+        showError(result.message || 'Registration failed. Please try again.');
+        btn.disabled    = false;
+        btn.textContent = 'Create Account';
+      }
+    },
+    'POST',
+    { username, first_name: firstName, last_name: lastName, email, password }
+  );
 });
 
 function showError(msg) {

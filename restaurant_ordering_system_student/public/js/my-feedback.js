@@ -1,22 +1,23 @@
 // public/js/my-feedback.js
 // Drives feedback/my-feedback.html
-// Calls:
-//   GET    /feedback/my      → get_feedback(member_id)   [SQL function]
-//   PUT    /feedback/:id     → update_feedback(...)       [SQL procedure]
-//   DELETE /feedback/:id     → delete_feedback(...)       [SQL procedure]
+
+// Wraps fetchMethod in a Promise so async/await flow is preserved.
+// Resolves with { status, data } — status is the HTTP code, data is the JSON body.
+function apiFetch(url, method = 'GET', body = null) {
+  return new Promise((resolve) => {
+    fetchMethod(url, (status, data) => resolve({ status, data }), method, body);
+  });
+}
 
 let editModal;
 
 document.addEventListener('DOMContentLoaded', async () => {
   editModal = new bootstrap.Modal(document.getElementById('editModal'));
 
-  try {
-    const r = await fetch('/api/auth/status');
-    const d = await r.json();
-    if (d.authenticated) {
-      document.getElementById('nav-username').textContent = `Welcome, ${d.user.name}`;
-    }
-  } catch (_) {}
+  const { data: auth } = await apiFetch('/api/auth/status');
+  if (auth.authenticated) {
+    document.getElementById('nav-username').textContent = `Welcome, ${auth.user.name}`;
+  }
 
   await loadMyFeedback();
   document.getElementById('edit-form').addEventListener('submit', handleEditSubmit);
@@ -34,32 +35,24 @@ async function loadMyFeedback() {
   tableWrap.style.display  = 'none';
   tbody.innerHTML          = '';
 
-  try {
-    const res  = await fetch('/feedback/my');
-    const data = await res.json();
+  const { data } = await apiFetch('/feedback/my');
+  loading.style.display = 'none';
 
-    loading.style.display = 'none';
-
-    if (!data.success) {
-      showGlobalAlert('danger', data.message || 'Failed to load feedback.');
-      return;
-    }
-
-    if (!data.feedback || data.feedback.length === 0) {
-      noFeedback.style.display = 'block';
-      return;
-    }
-
-    data.feedback.forEach((fb, idx) => {
-      tbody.insertAdjacentHTML('beforeend', buildRow(fb, idx + 1));
-    });
-
-    tableWrap.style.display = 'block';
-
-  } catch (_) {
-    loading.style.display = 'none';
-    showGlobalAlert('danger', 'An error occurred while loading your feedback.');
+  if (!data.success) {
+    showGlobalAlert('danger', data.message || 'Failed to load feedback.');
+    return;
   }
+
+  if (!data.feedback || data.feedback.length === 0) {
+    noFeedback.style.display = 'block';
+    return;
+  }
+
+  data.feedback.forEach((fb, idx) => {
+    tbody.insertAdjacentHTML('beforeend', buildRow(fb, idx + 1));
+  });
+
+  tableWrap.style.display = 'block';
 }
 
 function buildRow(fb, rowNum) {
@@ -106,7 +99,6 @@ function openEditModal(btn) {
   const saveBtn = document.getElementById('edit-save-btn');
   saveBtn.disabled    = false;
   saveBtn.textContent = 'Save Changes';
-
   editModal.show();
 }
 
@@ -126,26 +118,14 @@ async function handleEditSubmit(e) {
   saveBtn.textContent = 'Saving…';
   modalErr.style.display = 'none';
 
-  try {
-    const res  = await fetch(`/feedback/${feedbackId}`, {
-      method:  'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ rating, comment })
-    });
-    const data = await res.json();
+  const { data } = await apiFetch(`/feedback/${feedbackId}`, 'PUT', { rating, comment });
 
-    if (data.success) {
-      editModal.hide();
-      showGlobalAlert('success', 'Feedback updated successfully.');
-      await loadMyFeedback();
-    } else {
-      modalErr.textContent   = data.message || 'Failed to update feedback.';
-      modalErr.style.display = 'block';
-      saveBtn.disabled    = false;
-      saveBtn.textContent = 'Save Changes';
-    }
-  } catch (_) {
-    modalErr.textContent   = 'An error occurred.';
+  if (data.success) {
+    editModal.hide();
+    showGlobalAlert('success', 'Feedback updated successfully.');
+    await loadMyFeedback();
+  } else {
+    modalErr.textContent   = data.message || 'Failed to update feedback.';
     modalErr.style.display = 'block';
     saveBtn.disabled    = false;
     saveBtn.textContent = 'Save Changes';
@@ -156,25 +136,20 @@ async function handleEditSubmit(e) {
 async function deleteFeedback(feedbackId) {
   if (!confirm('Delete this feedback?\nAll responses to it will also be removed.')) return;
 
-  try {
-    const res  = await fetch(`/feedback/${feedbackId}`, { method: 'DELETE' });
-    const data = await res.json();
+  const { data } = await apiFetch(`/feedback/${feedbackId}`, 'DELETE');
 
-    if (data.success) {
-      const row = document.getElementById(`row-${feedbackId}`);
-      if (row) row.remove();
+  if (data.success) {
+    const row = document.getElementById(`row-${feedbackId}`);
+    if (row) row.remove();
 
-      const tbody = document.getElementById('feedback-tbody');
-      if (!tbody.querySelector('tr')) {
-        document.getElementById('table-container').style.display = 'none';
-        document.getElementById('no-feedback').style.display     = 'block';
-      }
-      showGlobalAlert('success', 'Feedback deleted successfully.');
-    } else {
-      showGlobalAlert('danger', data.message || 'Failed to delete feedback.');
+    const tbody = document.getElementById('feedback-tbody');
+    if (!tbody.querySelector('tr')) {
+      document.getElementById('table-container').style.display = 'none';
+      document.getElementById('no-feedback').style.display     = 'block';
     }
-  } catch (_) {
-    showGlobalAlert('danger', 'An error occurred.');
+    showGlobalAlert('success', 'Feedback deleted successfully.');
+  } else {
+    showGlobalAlert('danger', data.message || 'Failed to delete feedback.');
   }
 }
 
