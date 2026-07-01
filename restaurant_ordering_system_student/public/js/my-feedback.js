@@ -57,10 +57,7 @@ async function loadMyFeedback() {
 
 function buildRow(fb, rowNum) {
   const stars     = renderStars(fb.rating);
-  const submitted = new Date(fb.created_at).toLocaleDateString();
-  const edited    = fb.updated_at
-                      ? new Date(fb.updated_at).toLocaleDateString()
-                      : '<span class="text-muted">—</span>';
+  const submitted = new Date(fb.created_at).toLocaleString();
 
   return `
     <tr id="row-${fb.feedback_id}">
@@ -73,7 +70,6 @@ function buildRow(fb, rowNum) {
       <td>${stars}</td>
       <td style="max-width:300px; word-break:break-word;">${escapeHtml(fb.comment || '')}</td>
       <td>${submitted}</td>
-      <td>${edited}</td>
       <td>
         <div class="d-flex gap-1 flex-wrap">
           <button class="btn btn-outline-primary btn-sm"

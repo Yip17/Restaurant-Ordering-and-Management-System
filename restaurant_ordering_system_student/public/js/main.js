@@ -5,7 +5,7 @@
    ========================= */
 
 function formatDate(dateString) {
-  return new Date(dateString).toLocaleDateString();
+  return new Date(dateString).toLocaleString();
 }
 
 function createStarRating(rating) {

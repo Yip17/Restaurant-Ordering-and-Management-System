@@ -103,7 +103,7 @@ function buildFeedbackCard(fb, productId, isOwner, currentUserId) {
         <div>
           <span class="fw-semibold me-2">${escapeHtml(fb.username || 'Member')}</span>
           <span>${renderStars(fb.rating)}</span>
-          <small class="text-muted ms-2">${new Date(fb.created_at).toLocaleDateString()}</small>
+          <small class="text-muted ms-2">${new Date(fb.created_at).toLocaleString()}</small>
         </div>
         ${isOwner ? `
           <div class="d-flex gap-2">
@@ -150,7 +150,7 @@ async function loadResponses(feedbackId, currentUserId) {
         <div>
           <span class="fw-semibold me-1" style="font-size:0.9rem;">${escapeHtml(r.username || 'Member')}:</span>
           <span style="font-size:0.9rem;">${escapeHtml(r.response_text)}</span>
-          <small class="text-muted ms-1">${new Date(r.created_at).toLocaleDateString()}</small>
+          <small class="text-muted ms-1">${new Date(r.created_at).toLocaleString()}</small>
         </div>
         ${isMine ? `<button class="btn btn-link btn-sm text-danger p-0 ms-2"
                       onclick="deleteResponse(${r.response_id})">Delete</button>` : ''}

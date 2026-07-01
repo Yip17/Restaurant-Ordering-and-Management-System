@@ -149,16 +149,38 @@ function restoreFilters(filters) {
 }
 
 function populateCategories(categories) {
-    const select = document.getElementById('category');
-    while (select.options.length > 1) select.remove(1);
-    (categories || []).forEach(cat => {
-        const opt = document.createElement('option');
-        opt.value       = cat;
-        opt.textContent = cat;
-        select.appendChild(opt);
-    });
+
+    // Get the dropdown menu
+    const select = document.getElementById("category");
+
+    // Remove all options except the first one
+    while (select.options.length > 1) {
+        select.remove(1);
+    }
+
+    // Add each category to the dropdown
+    if (categories) {
+        for (let i = 0; i < categories.length; i++) {
+
+            const option = document.createElement("option");
+
+            option.value = categories[i];
+            option.textContent = categories[i];
+
+            select.appendChild(option);
+        }
+    }
+
+    // Read the URL parameters
     const params = new URLSearchParams(window.location.search);
-    if (params.get('category')) select.value = params.get('category');
+
+    // Get the category from the URL
+    const selectedCategory = params.get("category");
+
+    // If a category exists, select it
+    if (selectedCategory !== null) {
+        select.value = selectedCategory;
+    }
 }
 
 function updateUserWelcome(user) {
@@ -232,6 +254,7 @@ async function loadProductFeedback(category) {
         return;
     }
 
+    //redundant
     if (!data.product) {
         noFbEl.textContent   = `No product found for category "${escapeHtml(category)}".`;
         noFbEl.style.display = 'block';
@@ -325,8 +348,7 @@ function buildAdminFeedbackCard(fb, adminId) {
                 <div>
                     <span class="fw-semibold me-2">${escapeHtml(fb.username || 'Member')}</span>
                     <span>${stars}</span>
-                    <small class="text-muted ms-2">${new Date(fb.created_at).toLocaleDateString()}</small>
-                    ${fb.updated_at ? `<small class="text-muted ms-1">(edited ${new Date(fb.updated_at).toLocaleDateString()})</small>` : ''}
+                    <small class="text-muted ms-2">${new Date(fb.created_at).toLocaleString()}</small>
                 </div>
                 <span class="badge bg-secondary">Feedback #${fb.feedback_id}</span>
             </div>
@@ -366,7 +388,7 @@ function buildResponsesHtml(responses, adminId, feedbackId) {
                         ${escapeHtml(r.username || 'Member')}:
                     </span>
                     <span style="font-size:0.9rem;">${escapeHtml(r.response_text)}</span>
-                    <small class="text-muted ms-1">${new Date(r.created_at).toLocaleDateString()}</small>
+                    <small class="text-muted ms-1">${new Date(r.created_at).toLocaleString()}</small>
                 </div>
                 ${isAdminOwn ? `
                     <button class="btn btn-link btn-sm text-danger p-0 ms-2"
