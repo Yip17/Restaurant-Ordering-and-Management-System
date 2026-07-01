@@ -5,7 +5,7 @@
 // Resolves with { status, data } — status is the HTTP code, data is the JSON body.
 function apiFetch(url, method = 'GET', body = null) {
   return new Promise((resolve) => {
-    fetchMethod(url, (status, data) => resolve({ status, data }), method, body);
+    fetchMethod(url, (status, data) => resolve(data), method, body);
   });
 }
 
@@ -242,37 +242,37 @@ async function loadProductFeedback(category) {
     listEl.innerHTML        = '';
     titleEl.textContent     = `Product Feedback — ${category}`;
 
-    const { data } = await apiFetch(
+    const dashboardData = await apiFetch(
         `/api/dashboard/product-feedback?category=${encodeURIComponent(category)}`
     );
 
     loading.style.display = 'none';
 
-    if (!data.success) {
-        errEl.textContent   = data.message || 'Failed to load feedback.';
+    if (!dashboardData.success) {
+        errEl.textContent   = dashboardData.message || 'Failed to load feedback.';
         errEl.style.display = 'block';
         return;
     }
 
     //redundant
-    if (!data.product) {
+    if (!dashboardData.product) {
         noFbEl.textContent   = `No product found for category "${escapeHtml(category)}".`;
         noFbEl.style.display = 'block';
         return;
     }
 
-    titleEl.textContent = `Product Feedback — ${escapeHtml(data.product.name)} (${escapeHtml(category)})`;
-    renderAvailabilityToggle(data.product);
+    titleEl.textContent = `Product Feedback — ${escapeHtml(dashboardData.product.name)} (${escapeHtml(category)})`;
+    renderAvailabilityToggle(dashboardData.product);
 
-    if (!data.feedback || data.feedback.length === 0) {
+    if (!dashboardData.feedback || dashboardData.feedback.length === 0) {
         noFbEl.style.display = 'block';
         return;
     }
 
-    const { data: authData } = await apiFetch('/api/auth/status');
-    const adminId = authData.authenticated ? authData.user.id : null;
+    const auth = await apiFetch('/api/auth/status');
+    const adminId = auth.authenticated ? auth.user.id : null;
 
-    data.feedback.forEach(fb => {
+    dashboardData.feedback.forEach(fb => {
         listEl.appendChild(buildAdminFeedbackCard(fb, adminId));
     });
 }
@@ -315,16 +315,16 @@ async function toggleProductAvailability() {
 
     btn.disabled = true;
 
-    const { data } = await apiFetch(
+    const result = await apiFetch(
         '/api/dashboard/product-availability',
         'PATCH',
         { product_id: _currentProduct.product_id, is_available: newValue }
     );
 
-    if (data.success) {
-        renderAvailabilityToggle(data.product);
+    if (result.success) {
+        renderAvailabilityToggle(result.product);
     } else {
-        alert(data.message || 'Failed to update product availability.');
+        alert(result.message || 'Failed to update product availability.');
     }
 
     btn.disabled = false;
@@ -407,27 +407,27 @@ async function adminSubmitResponse(feedbackId) {
     errorEl.textContent = '';
     if (!text) { errorEl.textContent = 'Response cannot be empty.'; return; }
 
-    const { data } = await apiFetch(
+    const result = await apiFetch(
         `/feedback/${feedbackId}/responses`,
         'POST',
         { response_text: text }
     );
 
-    if (data.success) {
+    if (result.success) {
         input.value = '';
         await refreshAdminResponses(feedbackId);
     } else {
-        errorEl.textContent = data.message || 'Failed to submit response.';
+        errorEl.textContent = result.message || 'Failed to submit response.';
     }
 }
 
 async function adminDeleteResponse(responseId, feedbackId) {
     if (!confirm('Delete this response?')) return;
-    const { data } = await apiFetch(`/feedback/responses/${responseId}`, 'DELETE');
-    if (data.success) {
+    const result = await apiFetch(`/feedback/responses/${responseId}`, 'DELETE');
+    if (result.success) {
         await refreshAdminResponses(feedbackId);
     } else {
-        alert(data.message || 'Failed to delete response.');
+        alert(result.message || 'Failed to delete response.');
     }
 }
 
@@ -435,12 +435,12 @@ async function refreshAdminResponses(feedbackId) {
     const container = document.getElementById(`admin-responses-${feedbackId}`);
     if (!container) return;
 
-    const { data: authData } = await apiFetch('/api/auth/status');
-    const adminId = authData.authenticated ? authData.user.id : null;
+    const auth = await apiFetch('/api/auth/status');
+    const adminId = auth.authenticated ? auth.user.id : null;
 
-    const { data } = await apiFetch(`/feedback/${feedbackId}/responses`);
+    const responses = await apiFetch(`/feedback/${feedbackId}/responses`);
     container.innerHTML = buildResponsesHtml(
-        data.success ? data.responses : [],
+        responses.success ? responses.responses : [],
         adminId,
         feedbackId
     );

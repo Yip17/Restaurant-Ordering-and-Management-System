@@ -5,7 +5,7 @@
 // Resolves with { status, data } — status is the HTTP code, data is the JSON body.
 function apiFetch(url, method = 'GET', body = null) {
   return new Promise((resolve) => {
-    fetchMethod(url, (status, data) => resolve({ status, data }), method, body);
+    fetchMethod(url, (status, data) => resolve(data), method, body);
   });
 }
 
@@ -13,7 +13,7 @@ let currentProductId = null;
 let currentUserId    = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
-  const { data: auth } = await apiFetch('/api/auth/status');
+  const auth = await apiFetch('/api/auth/status');
   if (auth.authenticated) {
     currentUserId = auth.user.id;
     document.getElementById('nav-username').textContent = `Welcome, ${auth.user.name}`;
@@ -35,15 +35,15 @@ async function fetchProductDetail() {
     return;
   }
 
-  const { data } = await apiFetch(`/products/${currentProductId}`);
+  const product = await apiFetch(`/products/${currentProductId}`);
   loading.style.display = 'none';
 
-  if (!data.success || !data.product) {
+  if (!product.success || !product.product) {
     errEl.style.display = 'block';
     return;
   }
 
-  const p = data.product;
+  const p = product.product;
   document.title = `${p.name} - Restaurant`;
   document.getElementById('detail-name').textContent        = p.name;
   document.getElementById('detail-category').textContent    = p.category    || '—';
@@ -75,19 +75,19 @@ async function handleOrderSubmit(e) {
   btn.disabled    = true;
   btn.textContent = 'Placing order…';
 
-  const { status, data } = await apiFetch('/orders', 'POST', {
+  const result = await apiFetch('/orders', 'POST', {
     product_id:       currentProductId,
     quantity:         parseInt(document.getElementById('quantity').value),
     delivery_address: document.getElementById('delivery-address').value.trim()
   });
 
-  if (data.success) {
+  if (result.success) {
     successEl.innerHTML = `Order placed! Status: <strong>PACKING</strong>.
       <a href="/orders/my-orders" class="alert-link ms-2">View My Orders →</a>`;
     successEl.style.display = 'block';
     document.getElementById('order-form').reset();
   } else {
-    errorEl.textContent   = data.message || 'Failed to place order.';
+    errorEl.textContent   = result.message || 'Failed to place order.';
     errorEl.style.display = 'block';
   }
 
@@ -124,21 +124,21 @@ async function loadFeedbackList() {
   noFb.style.display      = 'none';
   fbList.innerHTML        = '';
 
-  const { data } = await apiFetch(`/feedback/${currentProductId}/all`);
+  const feedbackData = await apiFetch(`/feedback/${currentProductId}/all`);
   fbLoading.style.display = 'none';
 
-  if (!data.success) {
-    fbError.textContent   = data.message || 'Failed to load feedback.';
+  if (!feedbackData.success) {
+    fbError.textContent   = feedbackData.message || 'Failed to load feedback.';
     fbError.style.display = 'block';
     return;
   }
 
-  if (!data.feedback || data.feedback.length === 0) {
+  if (!feedbackData.feedback || feedbackData.feedback.length === 0) {
     noFb.style.display = 'block';
     return;
   }
 
-  for (const fb of data.feedback) {
+  for (const fb of feedbackData.feedback) {
     const isOwner = currentUserId && Number(fb.member_id) === Number(currentUserId);
     fbList.appendChild(buildFeedbackCard(fb, isOwner));
     loadResponses(fb.feedback_id);
@@ -191,14 +191,14 @@ function buildFeedbackCard(fb, isOwner) {
 
 async function loadResponses(feedbackId) {
   const container = document.getElementById(`responses-${feedbackId}`);
-  const { data } = await apiFetch(`/feedback/${feedbackId}/responses`);
+  const responses = await apiFetch(`/feedback/${feedbackId}/responses`);
 
-  if (!data.success || data.responses.length === 0) {
+  if (!responses.success || responses.responses.length === 0) {
     container.innerHTML = '<small class="text-muted">No responses yet.</small>';
     return;
   }
 
-  container.innerHTML = data.responses.map(r => {
+  container.innerHTML = responses.responses.map(r => {
     const isMine = currentUserId && Number(r.member_id) === Number(currentUserId);
     return `
       <div class="d-flex justify-content-between align-items-start mb-1"
@@ -225,31 +225,31 @@ async function submitResponse(feedbackId) {
   errorEl.textContent = '';
   if (!text) { errorEl.textContent = 'Response cannot be empty.'; return; }
 
-  const { data } = await apiFetch(`/feedback/${feedbackId}/responses`, 'POST', { response_text: text });
+  const result = await apiFetch(`/feedback/${feedbackId}/responses`, 'POST', { response_text: text });
 
-  if (data.success) { input.value = ''; loadResponses(feedbackId); }
-  else { errorEl.textContent = data.message || 'Failed to submit response.'; }
+  if (result.success) { input.value = ''; loadResponses(feedbackId); }
+  else { errorEl.textContent = result.message || 'Failed to submit response.'; }
 }
 
 async function deleteResponse(responseId) {
   if (!confirm('Delete this response?')) return;
-  const { data } = await apiFetch(`/feedback/responses/${responseId}`, 'DELETE');
-  if (data.success) {
+  const result = await apiFetch(`/feedback/responses/${responseId}`, 'DELETE');
+  if (result.success) {
     const row = document.getElementById(`response-row-${responseId}`);
     if (row) row.remove();
-  } else { alert(data.message || 'Failed to delete response.'); }
+  } else { alert(result.message || 'Failed to delete response.'); }
 }
 
 async function deleteFeedback(feedbackId) {
   if (!confirm('Delete this feedback? All responses will also be removed.')) return;
-  const { data } = await apiFetch(`/feedback/${feedbackId}`, 'DELETE');
-  if (data.success) {
+  const result = await apiFetch(`/feedback/${feedbackId}`, 'DELETE');
+  if (result.success) {
     const card = document.getElementById(`feedback-card-${feedbackId}`);
     if (card) card.remove();
     if (!document.querySelector('#feedback-list .card')) {
       document.getElementById('no-feedback').style.display = 'block';
     }
-  } else { alert(data.message || 'Failed to delete feedback.'); }
+  } else { alert(result.message || 'Failed to delete feedback.'); }
 }
 
 function renderStars(rating) {

@@ -5,12 +5,12 @@
 // Resolves with { status, data } — status is the HTTP code, data is the JSON body.
 function apiFetch(url, method = 'GET', body = null) {
   return new Promise((resolve) => {
-    fetchMethod(url, (status, data) => resolve({ status, data }), method, body);
+    fetchMethod(url, (status, data) => resolve(data), method, body);
   });
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-  const { data: auth } = await apiFetch('/api/auth/status');
+  const auth = await apiFetch('/api/auth/status');
   if (auth.authenticated) {
     document.getElementById('nav-username').textContent = `Welcome, ${auth.user.name}`;
   }
@@ -23,16 +23,16 @@ async function loadOrders() {
   const list     = document.getElementById('orders-list');
   const errEl    = document.getElementById('error-message');
 
-  const { data } = await apiFetch('/orders/my');
+  const orders = await apiFetch('/orders/my');
   loading.style.display = 'none';
 
-  if (!data.success || data.orders.length === 0) {
+  if (!orders.success || orders.orders.length === 0) {
     noOrders.style.display = 'block';
     return;
   }
 
   list.innerHTML = '';
-  data.orders.forEach(order => list.appendChild(buildOrderCard(order)));
+  orders.orders.forEach(order => list.appendChild(buildOrderCard(order)));
 }
 
 function buildOrderCard(order) {

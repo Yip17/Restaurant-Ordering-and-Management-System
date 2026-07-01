@@ -5,7 +5,7 @@
 // Resolves with { status, data } — status is the HTTP code, data is the JSON body.
 function apiFetch(url, method = 'GET', body = null) {
   return new Promise((resolve) => {
-    fetchMethod(url, (status, data) => resolve({ status, data }), method, body);
+    fetchMethod(url, (status, data) => resolve(data), method, body);
   });
 }
 
@@ -14,7 +14,7 @@ let editModal;
 document.addEventListener('DOMContentLoaded', async () => {
   editModal = new bootstrap.Modal(document.getElementById('editModal'));
 
-  const { data: auth } = await apiFetch('/api/auth/status');
+  const auth = await apiFetch('/api/auth/status');
   if (auth.authenticated) {
     document.getElementById('nav-username').textContent = `Welcome, ${auth.user.name}`;
   }
@@ -35,20 +35,20 @@ async function loadMyFeedback() {
   tableWrap.style.display  = 'none';
   tbody.innerHTML          = '';
 
-  const { data } = await apiFetch('/feedback/my');
+  const feedbackList = await apiFetch('/feedback/my');
   loading.style.display = 'none';
 
-  if (!data.success) {
-    showGlobalAlert('danger', data.message || 'Failed to load feedback.');
+  if (!feedbackList.success) {
+    showGlobalAlert('danger', feedbackList.message || 'Failed to load feedback.');
     return;
   }
 
-  if (!data.feedback || data.feedback.length === 0) {
+  if (!feedbackList.feedback || feedbackList.feedback.length === 0) {
     noFeedback.style.display = 'block';
     return;
   }
 
-  data.feedback.forEach(function (fb, idx) {
+  feedbackList.feedback.forEach(function (fb, idx) {
       tbody.innerHTML += buildRow(fb, idx + 1);
   });
 
@@ -114,14 +114,14 @@ async function handleEditSubmit(e) {
   saveBtn.textContent = 'Saving…';
   modalErr.style.display = 'none';
 
-  const { data } = await apiFetch(`/feedback/${feedbackId}`, 'PUT', { rating, comment });
+  const result = await apiFetch(`/feedback/${feedbackId}`, 'PUT', { rating, comment });
 
-  if (data.success) {
+  if (result.success) {
     editModal.hide();
     showGlobalAlert('success', 'Feedback updated successfully.');
     await loadMyFeedback();
   } else {
-    modalErr.textContent   = data.message || 'Failed to update feedback.';
+    modalErr.textContent   = result.message || 'Failed to update feedback.';
     modalErr.style.display = 'block';
     saveBtn.disabled    = false;
     saveBtn.textContent = 'Save Changes';
@@ -132,9 +132,9 @@ async function handleEditSubmit(e) {
 async function deleteFeedback(feedbackId) {
   if (!confirm('Delete this feedback?\nAll responses to it will also be removed.')) return;
 
-  const { data } = await apiFetch(`/feedback/${feedbackId}`, 'DELETE');
+  const result = await apiFetch(`/feedback/${feedbackId}`, 'DELETE');
 
-  if (data.success) {
+  if (result.success) {
     const row = document.getElementById(`row-${feedbackId}`);
     if (row) row.remove();
 
@@ -145,7 +145,7 @@ async function deleteFeedback(feedbackId) {
     }
     showGlobalAlert('success', 'Feedback deleted successfully.');
   } else {
-    showGlobalAlert('danger', data.message || 'Failed to delete feedback.');
+    showGlobalAlert('danger', result.message || 'Failed to delete feedback.');
   }
 }
 
