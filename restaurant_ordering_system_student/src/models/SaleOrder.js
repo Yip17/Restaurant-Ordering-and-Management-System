@@ -8,10 +8,34 @@ const pool = require('../config/database');
 function remapRow(data) {
     if (data == null) return data;
     const result = {};
+
     for (const key in data) {
-        result[key.replace('out_', '')] = data[key];
+        result[key.startsWith("out_") ? key.slice(4) : key] = data[key];
     }
+
     return result;
+}
+
+// Maps the error code prefix in the SQL RAISE message to a clean user-facing string.
+function parseDbError(err) {
+    const msg = err.message || "";
+
+    const codes = {
+        ORDER_NOT_FOUND:    "Order not found.",
+        MEMBER_NOT_FOUND:   "Member not found.",
+        PRODUCT_NOT_FOUND:  "Product not found or unavailable.",
+        INVALID_QUANTITY:   "Quantity must be at least 1.",
+        INVALID_STATUS:     "Invalid order status.",
+        BLANK_ADDRESS:      "Delivery address cannot be empty."
+    };
+
+    for (let code in codes) {
+        if (msg.indexOf(code) === 0) {
+            return codes[code];
+        }
+    }
+
+    return null;
 }
 
 class SaleOrder {
@@ -26,10 +50,20 @@ class SaleOrder {
 
     // Single order by ID — get_order_by_id($1)
     static async findById(orderId) {
-        const result = await pool.query(
-            'SELECT * FROM get_order_by_id($1)', [orderId]
-        );
-        return result.rows[0] || null;
+        try {
+            const result = await pool.query(
+                'SELECT * FROM get_order_by_id($1)', [orderId]
+            );
+            return result.rows[0] || null;
+        } catch (err) {
+            const clean = parseDbError(err);
+            if (clean) {
+                const error = new Error(clean);
+                error.userFacing = true;
+                throw error;
+            }
+            throw err;
+        }
     }
 
     // Place a new order — CALL place_order($1,$2,$3,$4,NULL,NULL)
@@ -45,9 +79,11 @@ class SaleOrder {
             const orderId = result.rows[0].p_order_id;
             return await SaleOrder.findById(orderId);
         } catch (err) {
-            const msg = err.message || "";
-            if (msg.indexOf("PRODUCT_NOT_FOUND") === 0) {
-                throw new Error('Product not found or unavailable');
+            const clean = parseDbError(err);
+            if (clean) {
+                const error = new Error(clean);
+                error.userFacing = true;
+                throw error;
             }
             throw err;
         }
@@ -57,10 +93,20 @@ class SaleOrder {
     // Procedure validates status value and order existence.
     // Re-fetches the updated row via get_order_by_id.
     static async updateStatus(orderId, status) {
-        await pool.query(
-            'CALL update_order_status($1, $2)', [orderId, status]
-        );
-        return await SaleOrder.findById(orderId);
+        try {
+            await pool.query(
+                'CALL update_order_status($1, $2)', [orderId, status]
+            );
+            return await SaleOrder.findById(orderId);
+        } catch (err) {
+            const clean = parseDbError(err);
+            if (clean) {
+                const error = new Error(clean);
+                error.userFacing = true;
+                throw error;
+            }
+            throw err;
+        }
     }
 
     // Ownership check — check_order_ownership($1,$2)
@@ -99,12 +145,22 @@ class SaleOrder {
 
     // Dashboard summary — get_sale_order_summary($1,$2,$3,$4,$5,$6)
     static async getSummary({ startDate, endDate, category, status, sortBy, sortOrder } = {}) {
-        const result = await pool.query(
-            'SELECT * FROM get_sale_order_summary($1, $2, $3, $4, $5, $6)',
-            [startDate || null, endDate || null, category || null,
-             status || null, sortBy || 'order_date', sortOrder || 'DESC']
-        );
-        return result.rows.map(remapRow);
+        try {
+            const result = await pool.query(
+                'SELECT * FROM get_sale_order_summary($1, $2, $3, $4, $5, $6)',
+                [startDate || null, endDate || null, category || null,
+                 status || null, sortBy || 'order_date', sortOrder || 'DESC']
+            );
+            return result.rows.map(remapRow);
+        } catch (err) {
+            const clean = parseDbError(err);
+            if (clean) {
+                const error = new Error(clean);
+                error.userFacing = true;
+                throw error;
+            }
+            throw err;
+        }
     }
 }
 

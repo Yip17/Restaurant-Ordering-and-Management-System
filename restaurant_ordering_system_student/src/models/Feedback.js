@@ -10,15 +10,11 @@ const pool = require('../config/database');
 
 // Strip the "out_" prefix from keys returned by the plpgsql RETURNS TABLE functions.
 function remapRow(data) {
-    if (data == null) {
-        return data;
-    }
+    if (data == null) return data;
+    const result = {};
 
-    let result = {};
-
-    for (let key in data) {
-        let newKey = key.replace("out_", "");
-        result[newKey] = data[key];
+    for (const key in data) {
+        result[key.startsWith("out_") ? key.slice(4) : key] = data[key];
     }
 
     return result;

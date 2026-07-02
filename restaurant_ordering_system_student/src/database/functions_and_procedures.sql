@@ -88,7 +88,7 @@ CREATE OR REPLACE FUNCTION get_member_by_email(p_email VARCHAR)
 RETURNS TABLE (
     out_member_id     INTEGER,
     out_username      VARCHAR,
-    out_password_hash TEXT,
+    out_password_hash VARCHAR,
     out_role          VARCHAR
 )
 LANGUAGE plpgsql STABLE AS $$
@@ -101,7 +101,6 @@ BEGIN
         LIMIT 1;
 END;
 $$;
-
 
 -- -----------------------------------------------------------------------------
 -- register_member
@@ -164,6 +163,13 @@ $$;
 
 -- -----------------------------------------------------------------------------
 -- get_product_by_id
+-- Returns a single product by ID.
+--
+-- Validates:
+--   • product exists
+--
+-- PgAdmin: SELECT * FROM get_product_by_id(1);
+-- App:     SELECT * FROM get_product_by_id($1)
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION get_product_by_id(p_product_id INTEGER)
 RETURNS TABLE (
@@ -176,6 +182,11 @@ RETURNS TABLE (
 )
 LANGUAGE plpgsql STABLE AS $$
 BEGIN
+    -- Validate product exists
+    IF NOT EXISTS (SELECT 1 FROM product p WHERE p.product_id = p_product_id) THEN
+        RAISE EXCEPTION 'PRODUCT_NOT_FOUND: Product % does not exist.', p_product_id;
+    END IF;
+
     RETURN QUERY
         SELECT p.product_id, p.name, p.description, p.price, p.category, p.is_available
         FROM product p
@@ -225,6 +236,16 @@ $$;
 
 -- -----------------------------------------------------------------------------
 -- update_product_availability
+-- Toggles a product's is_available flag. Admin-only (enforced in the route).
+--
+-- Validates:
+--   • product exists
+--
+-- OUT parameters return the updated product row so the caller does not need
+-- a separate SELECT.
+--
+-- PgAdmin: CALL update_product_availability(1, false, NULL, NULL, NULL, NULL);
+-- App:     CALL update_product_availability($1, $2, NULL, NULL, NULL, NULL)
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE update_product_availability(
     IN  p_product_id    INTEGER,
@@ -236,11 +257,16 @@ CREATE OR REPLACE PROCEDURE update_product_availability(
 )
 LANGUAGE plpgsql AS $$
 BEGIN
+    -- Validate product exists
+    IF NOT EXISTS (SELECT 1 FROM product p WHERE p.product_id = p_product_id) THEN
+        RAISE EXCEPTION 'PRODUCT_NOT_FOUND: Product % does not exist.', p_product_id;
+    END IF;
+
     UPDATE product p
-    SET is_available = p_is_available
-    WHERE p.product_id = p_product_id
-    RETURNING p.product_id, p.name, p.category, p.is_available
-    INTO p_out_id, p_out_name, p_out_category, p_out_available;
+       SET is_available = p_is_available
+     WHERE p.product_id = p_product_id
+     RETURNING p.product_id, p.name, p.category, p.is_available
+     INTO p_out_id, p_out_name, p_out_category, p_out_available;
 END;
 $$;
 
@@ -250,7 +276,71 @@ $$;
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------
+-- get_order_by_id
+-- Returns a single order by ID with all its order items as a JSON array.
+-- Used after placing an order or updating order status to fetch the complete result.
+--
+-- Validates:
+--   • order exists
+--
+-- PgAdmin: SELECT * FROM get_order_by_id(1);
+-- App:     SELECT * FROM get_order_by_id($1)
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION get_order_by_id(p_order_id INTEGER)
+RETURNS TABLE (
+    order_id INTEGER,
+    order_date TIMESTAMP,
+    total_amount NUMERIC,
+    status VARCHAR,
+    delivery_address TEXT,
+    items JSON
+)
+LANGUAGE plpgsql STABLE AS $$
+BEGIN
+    -- Validate order exists
+    IF NOT EXISTS (SELECT 1 FROM sale_order so WHERE so.order_id = p_order_id) THEN
+        RAISE EXCEPTION 'ORDER_NOT_FOUND: Order % does not exist.', p_order_id;
+    END IF;
+
+    RETURN QUERY
+    SELECT
+        so.order_id,
+        so.order_date,
+        so.total_amount,
+        so.status,
+        so.delivery_address,
+        json_agg(
+            json_build_object(
+                'order_item_id', soi.order_item_id,
+                'product_id', soi.product_id,
+                'product_name', p.name,
+                'quantity', soi.quantity,
+                'unit_price', soi.unit_price,
+                'subtotal', soi.subtotal
+            )
+            ORDER BY soi.order_item_id
+        ) AS items
+    FROM sale_order so
+    JOIN sale_order_item soi ON soi.order_id = so.order_id
+    JOIN product p ON p.product_id = soi.product_id
+    WHERE so.order_id = p_order_id
+    GROUP BY
+        so.order_id,
+        so.order_date,
+        so.total_amount,
+        so.status,
+        so.delivery_address;
+END;
+$$;
+
+
+-- -----------------------------------------------------------------------------
 -- check_order_ownership
+-- Returns TRUE if the order belongs to the specified member.
+-- Used for authorization checks before allowing order status updates.
+--
+-- PgAdmin: SELECT check_order_ownership(1, 2);
+-- App:     SELECT check_order_ownership($1, $2) AS owned
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION check_order_ownership(
     p_order_id  INTEGER,
@@ -271,6 +361,19 @@ $$;
 
 -- -----------------------------------------------------------------------------
 -- place_order
+-- Places a new order for a member.
+--
+-- Validates:
+--   • member exists
+--   • product exists and is available (is_available = true)
+--   • quantity is at least 1
+--   • delivery address is not blank
+--
+-- OUT p_order_id      — ID of the newly created sale_order row.
+-- OUT p_order_item_id — ID of the newly created sale_order_item row.
+--
+-- PgAdmin: CALL place_order(2, 1, 2, '123 Main St', NULL, NULL);
+-- App:     CALL place_order($1, $2, $3, $4, NULL, NULL)
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE place_order(
     IN  p_member_id        INTEGER,
@@ -282,14 +385,40 @@ CREATE OR REPLACE PROCEDURE place_order(
 )
 LANGUAGE plpgsql AS $$
 DECLARE
-    v_unit_price NUMERIC;
+    v_unit_price  NUMERIC;
+    v_is_available BOOLEAN;
 BEGIN
-    SELECT p.price INTO v_unit_price
-    FROM product p
-    WHERE p.product_id = p_product_id;
+    -- Validate member exists
+    IF NOT EXISTS (SELECT 1 FROM member m WHERE m.member_id = p_member_id) THEN
+        RAISE EXCEPTION 'MEMBER_NOT_FOUND: Member % does not exist.', p_member_id;
+    END IF;
+
+    -- Validate product exists and is available
+    SELECT p.price, p.is_available
+      INTO v_unit_price, v_is_available
+      FROM product p
+     WHERE p.product_id = p_product_id;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'PRODUCT_NOT_FOUND: Product % does not exist or is unavailable.', p_product_id;
+    END IF;
+
+    IF v_is_available IS FALSE THEN
+        RAISE EXCEPTION 'PRODUCT_NOT_FOUND: Product % does not exist or is unavailable.', p_product_id;
+    END IF;
+
+    -- Validate quantity
+    IF p_quantity IS NULL OR p_quantity < 1 THEN
+        RAISE EXCEPTION 'INVALID_QUANTITY: Quantity must be at least 1.';
+    END IF;
+
+    -- Validate delivery address
+    IF p_delivery_address IS NULL OR TRIM(p_delivery_address) = '' THEN
+        RAISE EXCEPTION 'BLANK_ADDRESS: Delivery address cannot be empty.';
+    END IF;
 
     INSERT INTO sale_order (member_id, total_amount, status, delivery_address)
-    VALUES (p_member_id, v_unit_price * p_quantity, 'PACKING', p_delivery_address)
+    VALUES (p_member_id, v_unit_price * p_quantity, 'PACKING', TRIM(p_delivery_address))
     RETURNING order_id INTO p_order_id;
 
     INSERT INTO sale_order_item (order_id, product_id, quantity, unit_price, subtotal)
@@ -301,6 +430,14 @@ $$;
 
 -- -----------------------------------------------------------------------------
 -- update_order_status
+-- Updates the status of an existing order.
+--
+-- Validates:
+--   • order exists
+--   • status is one of the allowed values: PACKING, COMPLETED, CANCELLED
+--
+-- PgAdmin: CALL update_order_status(1, 'COMPLETED');
+-- App:     CALL update_order_status($1, $2)
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE update_order_status(
     IN p_order_id INTEGER,
@@ -308,9 +445,19 @@ CREATE OR REPLACE PROCEDURE update_order_status(
 )
 LANGUAGE plpgsql AS $$
 BEGIN
+    -- Validate order exists
+    IF NOT EXISTS (SELECT 1 FROM sale_order so WHERE so.order_id = p_order_id) THEN
+        RAISE EXCEPTION 'ORDER_NOT_FOUND: Order % does not exist.', p_order_id;
+    END IF;
+
+    -- Validate status value
+    IF p_status IS NULL OR p_status NOT IN ('PACKING', 'COMPLETED', 'CANCELLED') THEN
+        RAISE EXCEPTION 'INVALID_STATUS: Status must be PACKING, COMPLETED, or CANCELLED.';
+    END IF;
+
     UPDATE sale_order
-    SET status = p_status
-    WHERE order_id = p_order_id;
+       SET status = p_status
+     WHERE order_id = p_order_id;
 END;
 $$;
 
@@ -321,6 +468,19 @@ $$;
 
 -- -----------------------------------------------------------------------------
 -- create_feedback
+-- Creates a new feedback entry for a specific order item.
+--
+-- Validates:
+--   • member exists
+--   • order_item exists, belongs to the member, and its order is COMPLETED
+--   • rating is between 1 and 5
+--   • comment is not blank
+--   • no feedback already exists for this order_item from this member
+--
+-- OUT p_feedback_id — ID of the newly created row.
+--
+-- PgAdmin: CALL create_feedback(2, 3, 5, 'Great food!', NULL);
+-- App:     CALL create_feedback($1, $2, $3, $4, $5)  with NULL as 5th arg
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE create_feedback(
     IN  p_member_id     INTEGER,
@@ -331,15 +491,62 @@ CREATE OR REPLACE PROCEDURE create_feedback(
 )
 LANGUAGE plpgsql AS $$
 BEGIN
+    -- Validate member exists
+    IF NOT EXISTS (SELECT 1 FROM member m WHERE m.member_id = p_member_id) THEN
+        RAISE EXCEPTION 'MEMBER_NOT_FOUND: Member % does not exist.', p_member_id;
+    END IF;
+
+    -- Validate order item exists, belongs to this member, and order is COMPLETED
+    IF NOT EXISTS (
+        SELECT 1
+          FROM sale_order_item soi
+          JOIN sale_order so ON so.order_id = soi.order_id
+         WHERE soi.order_item_id = p_order_item_id
+           AND so.member_id      = p_member_id
+           AND so.status         = 'COMPLETED'
+    ) THEN
+        RAISE EXCEPTION 'NO_COMPLETED_ORDER: You can only review items from your completed orders.';
+    END IF;
+
+    -- Validate rating range
+    IF p_rating IS NULL OR p_rating < 1 OR p_rating > 5 THEN
+        RAISE EXCEPTION 'INVALID_RATING: Rating must be between 1 and 5.';
+    END IF;
+
+    -- Validate comment is not blank
+    IF p_comment IS NULL OR TRIM(p_comment) = '' THEN
+        RAISE EXCEPTION 'BLANK_COMMENT: Comment cannot be empty.';
+    END IF;
+
+    -- Prevent duplicate feedback for the same order item
+    IF EXISTS (
+        SELECT 1 FROM feedback f
+         WHERE f.order_item_id = p_order_item_id AND f.member_id = p_member_id
+    ) THEN
+        RAISE EXCEPTION 'ALREADY_REVIEWED: You have already submitted feedback for this order item.';
+    END IF;
+
     INSERT INTO feedback (order_item_id, member_id, rating, comment)
-    VALUES (p_order_item_id, p_member_id, p_rating, p_comment)
-    RETURNING feedback_id INTO p_feedback_id;
+    VALUES (p_order_item_id, p_member_id, p_rating, TRIM(p_comment))
+    RETURNING feedback.feedback_id INTO p_feedback_id;
 END;
 $$;
 
 
 -- -----------------------------------------------------------------------------
 -- update_feedback
+-- Updates rating and comment on the member's own feedback.
+--
+-- Validates:
+--   • feedback exists
+--   • member owns the feedback (ACCESS_DENIED if not)
+--   • rating is between 1 and 5
+--   • comment is not blank
+--
+-- Also sets updated_at to CURRENT_TIMESTAMP on every successful update.
+--
+-- PgAdmin: CALL update_feedback(1, 2, 4, 'Updated comment.');
+-- App:     CALL update_feedback($1, $2, $3, $4)
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE update_feedback(
     IN p_feedback_id INTEGER,
@@ -349,17 +556,48 @@ CREATE OR REPLACE PROCEDURE update_feedback(
 )
 LANGUAGE plpgsql AS $$
 BEGIN
-    UPDATE feedback
-    SET rating = p_rating,
-        comment = p_comment
-    WHERE feedback_id = p_feedback_id
-      AND member_id = p_member_id;
+    -- Validate feedback exists
+    IF NOT EXISTS (SELECT 1 FROM feedback f WHERE f.feedback_id = p_feedback_id) THEN
+        RAISE EXCEPTION 'FEEDBACK_NOT_FOUND: Feedback % does not exist.', p_feedback_id;
+    END IF;
+
+    -- Validate ownership
+    IF NOT EXISTS (
+        SELECT 1 FROM feedback f
+         WHERE f.feedback_id = p_feedback_id AND f.member_id = p_member_id
+    ) THEN
+        RAISE EXCEPTION 'ACCESS_DENIED: You can only edit your own feedback.';
+    END IF;
+
+    -- Validate rating range
+    IF p_rating IS NULL OR p_rating < 1 OR p_rating > 5 THEN
+        RAISE EXCEPTION 'INVALID_RATING: Rating must be between 1 and 5.';
+    END IF;
+
+    -- Validate comment is not blank
+    IF p_comment IS NULL OR TRIM(p_comment) = '' THEN
+        RAISE EXCEPTION 'BLANK_COMMENT: Comment cannot be empty.';
+    END IF;
+
+    UPDATE feedback f
+       SET rating     = p_rating,
+           comment    = TRIM(p_comment),
+           updated_at = CURRENT_TIMESTAMP
+     WHERE f.feedback_id = p_feedback_id;
 END;
 $$;
 
 
 -- -----------------------------------------------------------------------------
 -- delete_feedback
+-- Deletes the member's own feedback. Responses cascade via FK ON DELETE CASCADE.
+--
+-- Validates:
+--   • feedback exists
+--   • member owns the feedback (ACCESS_DENIED if not)
+--
+-- PgAdmin: CALL delete_feedback(1, 2);
+-- App:     CALL delete_feedback($1, $2)
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE delete_feedback(
     IN p_feedback_id INTEGER,
@@ -367,15 +605,34 @@ CREATE OR REPLACE PROCEDURE delete_feedback(
 )
 LANGUAGE plpgsql AS $$
 BEGIN
-    DELETE FROM feedback
-    WHERE feedback_id = p_feedback_id
-      AND member_id = p_member_id;
+    -- Validate feedback exists
+    IF NOT EXISTS (SELECT 1 FROM feedback f WHERE f.feedback_id = p_feedback_id) THEN
+        RAISE EXCEPTION 'FEEDBACK_NOT_FOUND: Feedback % does not exist.', p_feedback_id;
+    END IF;
+
+    -- Validate ownership
+    IF NOT EXISTS (
+        SELECT 1 FROM feedback f
+         WHERE f.feedback_id = p_feedback_id AND f.member_id = p_member_id
+    ) THEN
+        RAISE EXCEPTION 'ACCESS_DENIED: You can only delete your own feedback.';
+    END IF;
+
+    DELETE FROM feedback f WHERE f.feedback_id = p_feedback_id;
 END;
 $$;
 
 
 -- -----------------------------------------------------------------------------
 -- get_feedback
+-- Returns all feedback submitted by a specific member, with product name.
+-- Named get_feedback as required by the task spec.
+--
+-- Validates:
+--   • member exists
+--
+-- PgAdmin: SELECT * FROM get_feedback(2);
+-- App:     SELECT * FROM get_feedback($1)
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION get_feedback(p_member_id INTEGER)
 RETURNS TABLE (
@@ -390,19 +647,32 @@ RETURNS TABLE (
 )
 LANGUAGE plpgsql STABLE AS $$
 BEGIN
+    IF NOT EXISTS (SELECT 1 FROM member m WHERE m.member_id = p_member_id) THEN
+        RAISE EXCEPTION 'MEMBER_NOT_FOUND: Member % does not exist.', p_member_id;
+    END IF;
+
     RETURN QUERY
     SELECT f.feedback_id, f.order_item_id, soi.product_id, p.name,
            f.rating, f.comment, f.created_at, f.updated_at
-    FROM feedback f
-    JOIN sale_order_item soi ON soi.order_item_id = f.order_item_id
-    JOIN product p ON p.product_id = soi.product_id
-    WHERE f.member_id = p_member_id;
+      FROM feedback f
+      JOIN sale_order_item soi ON soi.order_item_id = f.order_item_id
+      JOIN product p           ON p.product_id      = soi.product_id
+     WHERE f.member_id = p_member_id
+     ORDER BY f.created_at DESC;
 END;
 $$;
 
 
 -- -----------------------------------------------------------------------------
 -- get_feedback_by_product
+-- Returns all feedback for a product, with member username.
+-- Returns an empty result set if no feedback exists (not an error).
+--
+-- Validates:
+--   • product exists
+--
+-- PgAdmin: SELECT * FROM get_feedback_by_product(1);
+-- App:     SELECT * FROM get_feedback_by_product($1)
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION get_feedback_by_product(p_product_id INTEGER)
 RETURNS TABLE (
@@ -418,20 +688,32 @@ RETURNS TABLE (
 )
 LANGUAGE plpgsql STABLE AS $$
 BEGIN
+    IF NOT EXISTS (SELECT 1 FROM product p WHERE p.product_id = p_product_id) THEN
+        RAISE EXCEPTION 'PRODUCT_NOT_FOUND: Product % does not exist.', p_product_id;
+    END IF;
+
     RETURN QUERY
     SELECT f.feedback_id, f.member_id, f.order_item_id,
            soi.product_id, f.rating, f.comment,
            f.created_at, f.updated_at, m.username
-    FROM feedback f
-    JOIN sale_order_item soi ON soi.order_item_id = f.order_item_id
-    JOIN member m ON m.member_id = f.member_id
-    WHERE soi.product_id = p_product_id;
+      FROM feedback f
+      JOIN sale_order_item soi ON soi.order_item_id = f.order_item_id
+      JOIN member m            ON m.member_id       = f.member_id
+     WHERE soi.product_id = p_product_id
+     ORDER BY f.created_at DESC;
 END;
 $$;
 
 
 -- -----------------------------------------------------------------------------
 -- get_feedback_by_id
+-- Returns a single feedback entry by ID with product and member details.
+--
+-- Validates:
+--   • feedback exists
+--
+-- PgAdmin: SELECT * FROM get_feedback_by_id(1);
+-- App:     SELECT * FROM get_feedback_by_id($1)
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION get_feedback_by_id(p_feedback_id INTEGER)
 RETURNS TABLE (
@@ -447,6 +729,11 @@ RETURNS TABLE (
 )
 LANGUAGE plpgsql STABLE AS $$
 BEGIN
+    -- Validate feedback exists
+    IF NOT EXISTS (SELECT 1 FROM feedback f WHERE f.feedback_id = p_feedback_id) THEN
+        RAISE EXCEPTION 'FEEDBACK_NOT_FOUND: Feedback % does not exist.', p_feedback_id;
+    END IF;
+
     RETURN QUERY
     SELECT f.feedback_id, f.member_id, f.order_item_id,
            soi.product_id, f.rating, f.comment,
@@ -465,6 +752,18 @@ $$;
 
 -- -----------------------------------------------------------------------------
 -- create_response
+-- Creates a response to a feedback entry.
+--
+-- Validates:
+--   • feedback exists
+--   • member exists
+--   • response text is not blank
+--   • member is NOT the feedback author (cannot respond to own feedback)
+--
+-- OUT p_response_id — ID of the newly created row.
+--
+-- PgAdmin: CALL create_response(1, 3, 'Thanks for the review!', NULL);
+-- App:     CALL create_response($1, $2, $3, $4)  with NULL as 4th arg
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE create_response(
     IN  p_feedback_id   INTEGER,
@@ -474,15 +773,46 @@ CREATE OR REPLACE PROCEDURE create_response(
 )
 LANGUAGE plpgsql AS $$
 BEGIN
+    -- Validate feedback exists
+    IF NOT EXISTS (SELECT 1 FROM feedback f WHERE f.feedback_id = p_feedback_id) THEN
+        RAISE EXCEPTION 'FEEDBACK_NOT_FOUND: Feedback % does not exist.', p_feedback_id;
+    END IF;
+
+    -- Validate member exists
+    IF NOT EXISTS (SELECT 1 FROM member m WHERE m.member_id = p_member_id) THEN
+        RAISE EXCEPTION 'MEMBER_NOT_FOUND: Member % does not exist.', p_member_id;
+    END IF;
+
+    -- Validate response text is not blank
+    IF p_response_text IS NULL OR TRIM(p_response_text) = '' THEN
+        RAISE EXCEPTION 'BLANK_RESPONSE: Response text cannot be empty.';
+    END IF;
+
+    -- Prevent responding to own feedback
+    IF EXISTS (
+        SELECT 1 FROM feedback f
+         WHERE f.feedback_id = p_feedback_id AND f.member_id = p_member_id
+    ) THEN
+        RAISE EXCEPTION 'ACCESS_DENIED: You cannot respond to your own feedback.';
+    END IF;
+
     INSERT INTO feedback_response (feedback_id, member_id, response_text)
-    VALUES (p_feedback_id, p_member_id, p_response_text)
-    RETURNING response_id INTO p_response_id;
+    VALUES (p_feedback_id, p_member_id, TRIM(p_response_text))
+    RETURNING feedback_response.response_id INTO p_response_id;
 END;
 $$;
 
 
 -- -----------------------------------------------------------------------------
 -- delete_response
+-- Deletes a member's own response.
+--
+-- Validates:
+--   • response exists
+--   • member owns the response (ACCESS_DENIED if not)
+--
+-- PgAdmin: CALL delete_response(1, 3);
+-- App:     CALL delete_response($1, $2)
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE delete_response(
     IN p_response_id INTEGER,
@@ -490,15 +820,36 @@ CREATE OR REPLACE PROCEDURE delete_response(
 )
 LANGUAGE plpgsql AS $$
 BEGIN
-    DELETE FROM feedback_response
-    WHERE response_id = p_response_id
-      AND member_id = p_member_id;
+    -- Validate response exists
+    IF NOT EXISTS (
+        SELECT 1 FROM feedback_response fr WHERE fr.response_id = p_response_id
+    ) THEN
+        RAISE EXCEPTION 'RESPONSE_NOT_FOUND: Response % does not exist.', p_response_id;
+    END IF;
+
+    -- Validate ownership
+    IF NOT EXISTS (
+        SELECT 1 FROM feedback_response fr
+         WHERE fr.response_id = p_response_id AND fr.member_id = p_member_id
+    ) THEN
+        RAISE EXCEPTION 'ACCESS_DENIED: You can only delete your own responses.';
+    END IF;
+
+    DELETE FROM feedback_response fr WHERE fr.response_id = p_response_id;
 END;
 $$;
 
 
 -- -----------------------------------------------------------------------------
 -- get_response
+-- Returns all responses for a feedback entry, with member username.
+-- Named get_response as required by the task spec.
+--
+-- Validates:
+--   • feedback exists
+--
+-- PgAdmin: SELECT * FROM get_response(1);
+-- App:     SELECT * FROM get_response($1)
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION get_response(p_feedback_id INTEGER)
 RETURNS TABLE (
@@ -511,12 +862,17 @@ RETURNS TABLE (
 )
 LANGUAGE plpgsql STABLE AS $$
 BEGIN
+    IF NOT EXISTS (SELECT 1 FROM feedback f WHERE f.feedback_id = p_feedback_id) THEN
+        RAISE EXCEPTION 'FEEDBACK_NOT_FOUND: Feedback % does not exist.', p_feedback_id;
+    END IF;
+
     RETURN QUERY
     SELECT fr.response_id, fr.feedback_id, fr.member_id,
            fr.response_text, fr.created_at, m.username
-    FROM feedback_response fr
-    JOIN member m ON m.member_id = fr.member_id
-    WHERE fr.feedback_id = p_feedback_id;
+      FROM feedback_response fr
+      JOIN member m ON m.member_id = fr.member_id
+     WHERE fr.feedback_id = p_feedback_id
+     ORDER BY fr.created_at ASC;
 END;
 $$;
 
@@ -524,6 +880,38 @@ $$;
 -- =============================================================================
 -- HELPER FUNCTIONS
 -- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- get_order_item_status
+-- Returns the status of the order containing the specified order item,
+-- but ONLY if the order item belongs to the specified member.
+-- Returns NULL if the order item doesn't exist or doesn't belong to the member.
+--
+-- Used by FeedbackController to check if a member can submit feedback
+-- for a specific order item (must be COMPLETED and owned by them).
+--
+-- PgAdmin: SELECT get_order_item_status(3, 2);
+-- App:     SELECT get_order_item_status($1, $2) AS status
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION get_order_item_status(
+    p_order_item_id INTEGER,
+    p_member_id     INTEGER
+)
+RETURNS VARCHAR
+LANGUAGE plpgsql STABLE AS $$
+DECLARE
+    v_status VARCHAR;
+BEGIN
+    SELECT so.status INTO v_status
+      FROM sale_order_item soi
+      JOIN sale_order so ON so.order_id = soi.order_id
+     WHERE soi.order_item_id = p_order_item_id
+       AND so.member_id = p_member_id;
+    
+    RETURN v_status;  -- Returns NULL if not found or not owned by member
+END;
+$$;
+
 
 -- Returns TRUE if member has a COMPLETED order containing the product.
 -- PgAdmin: SELECT has_completed_order_for_product(2, 1);
