@@ -68,7 +68,8 @@ class Response {
             if (clean) {
                 const error = new Error(clean);
                 error.userFacing = true;
-                throw error;}            
+                throw error;
+            }            
             
             throw err;
         }

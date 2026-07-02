@@ -172,18 +172,17 @@ function buildFeedbackCard(fb, isOwner) {
       <div id="responses-${fb.feedback_id}" class="ms-3 mt-2 border-start ps-3">
         <small class="text-muted">Loading responses…</small>
       </div>
-      ${!isOwner ? `
-        <div class="mt-2">
-          <div class="input-group input-group-sm">
-            <input type="text" class="form-control"
-                   id="response-input-${fb.feedback_id}"
-                   placeholder="Write a response…" maxlength="500">
-            <button class="btn btn-outline-secondary"
-                    onclick="submitResponse(${fb.feedback_id})">Send</button>
-          </div>
-          <div id="response-error-${fb.feedback_id}"
-               class="text-danger mt-1" style="font-size:0.85rem;"></div>
-        </div>` : ''}
+      <div class="mt-2">
+        <div class="input-group input-group-sm">
+          <input type="text" class="form-control"
+                 id="response-input-${fb.feedback_id}"
+                 placeholder="Write a response…" maxlength="500">
+          <button class="btn btn-outline-secondary"
+                  onclick="submitResponse(${fb.feedback_id})">Send</button>
+        </div>
+        <div id="response-error-${fb.feedback_id}"
+             class="text-danger mt-1" style="font-size:0.85rem;"></div>
+      </div>
     </div>`;
 
   return card;

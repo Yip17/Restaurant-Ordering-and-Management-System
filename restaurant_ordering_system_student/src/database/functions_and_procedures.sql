@@ -788,12 +788,22 @@ BEGIN
         RAISE EXCEPTION 'BLANK_RESPONSE: Response text cannot be empty.';
     END IF;
 
-    -- Prevent responding to own feedback
+    -- Prevent feedback owner from giving the FIRST response to their own feedback
+    -- After someone else has responded, the owner can reply
     IF EXISTS (
         SELECT 1 FROM feedback f
          WHERE f.feedback_id = p_feedback_id AND f.member_id = p_member_id
     ) THEN
-        RAISE EXCEPTION 'ACCESS_DENIED: You cannot respond to your own feedback.';
+        -- This member is the feedback owner
+        -- Check if there are any existing responses
+        IF NOT EXISTS (
+            SELECT 1 FROM feedback_response fr
+             WHERE fr.feedback_id = p_feedback_id
+        ) THEN
+            -- No responses yet, so feedback owner cannot be the first to respond
+            RAISE EXCEPTION 'ACCESS_DENIED: You cannot give the first response to your own feedback.';
+        END IF;
+        -- If we reach here, there are existing responses, so the owner can reply
     END IF;
 
     INSERT INTO feedback_response (feedback_id, member_id, response_text)
