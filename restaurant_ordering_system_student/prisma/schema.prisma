@@ -52,6 +52,7 @@ model member {
   memberRole       memberRole[]
   response         response[]
   saleOrder        saleOrder[]
+  cart             cart?
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -73,6 +74,7 @@ model product {
   isAvailable   Boolean?        @default(true) @map("is_available")
   createdAt     DateTime?       @default(now()) @map("created_at") @db.Timestamp(6)
   saleOrderItem saleOrderItem[]
+  cartItem      cartItem[]
 }
 
 model response {
@@ -112,4 +114,33 @@ model saleOrderItem {
   product     product?   @relation(fields: [productId], references: [productId], onDelete: NoAction, onUpdate: NoAction)
 
   @@map("sale_order_item")
+}
+
+model cart {
+  cartId    Int        @id @default(autoincrement()) @map("cart_id")
+  memberId  Int        @unique @map("member_id")
+  createdAt DateTime   @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  member    member     @relation(fields: [memberId], references: [memberId], onDelete: Cascade, onUpdate: NoAction)
+  cartItem  cartItem[]
+
+  @@map("cart")
+}
+
+model cartItem {
+  cartItemId Int      @id @default(autoincrement()) @map("cart_item_id")
+  cartId     Int      @map("cart_id")
+  productId  Int      @map("product_id")
+  quantity   Int
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  cart       cart     @relation(fields: [cartId], references: [cartId], onDelete: Cascade, onUpdate: NoAction)
+  product    product  @relation(fields: [productId], references: [productId], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([cartId, productId])
+  @@index([cartId], map: "idx_cart_item_cart")
+  @@index([productId], map: "idx_cart_item_product")
+  @@map("cart_item")
 }
