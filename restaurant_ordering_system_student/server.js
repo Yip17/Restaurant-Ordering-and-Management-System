@@ -36,6 +36,9 @@ app.use('/member', require('./src/routes/productsPage'));
 // Order routes (place order, view my orders, update status)
 app.use('/orders', require('./src/routes/orders'));
 
+// Cart routes (add, view, update, delete cart items)
+app.use('/cart', require('./src/routes/cart'));
+
 // Feedback routes (view, create, edit feedback + responses)
 app.use('/feedback', require('./src/routes/feedback'));
 
