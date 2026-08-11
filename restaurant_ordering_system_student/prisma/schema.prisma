@@ -1,8 +1,3 @@
-generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
-}
-
 generator clientJs {
   provider = "prisma-client-js"
 }
@@ -79,6 +74,7 @@ model product {
   createdAt     DateTime?       @default(now()) @map("created_at") @db.Timestamp(6)
   saleOrderItem saleOrderItem[]
   cartItem      cartItem[]
+  discountRule  discountRule[]
 }
 
 model response {
@@ -118,6 +114,28 @@ model saleOrderItem {
   product     product?   @relation(fields: [productId], references: [productId], onDelete: NoAction, onUpdate: NoAction)
 
   @@map("sale_order_item")
+}
+
+/// Discount rules stored in DB — no code changes needed to add new rules.
+/// discountType: QUANTITY_PRODUCT | CART_VALUE | DELIVERY_TIERED | DELIVERY_FREE
+/// QUANTITY_PRODUCT: productId required, thresholdValue = min qty, discountPercent = % off
+/// CART_VALUE:       productId null,     thresholdValue = min subtotal $, discountPercent = % off
+/// DELIVERY_TIERED:  productId null,     thresholdValue = lower-bound $, deliveryFee = fee
+/// DELIVERY_FREE:    productId null,     thresholdValue = 0, overrides all tiered fees
+model discountRule {
+  ruleId          Int      @id @default(autoincrement()) @map("rule_id")
+  discountType    String   @map("discount_type") @db.VarChar(30)
+  thresholdValue  Decimal  @default(0) @map("threshold_value") @db.Decimal(10, 2)
+  discountPercent Decimal  @default(0) @map("discount_percent") @db.Decimal(5, 2)
+  deliveryFee     Decimal  @default(0) @map("delivery_fee") @db.Decimal(10, 2)
+  productId       Int?     @map("product_id")
+  isActive        Boolean  @default(true) @map("is_active")
+  description     String?  @db.VarChar(255)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  product         product? @relation(fields: [productId], references: [productId], onDelete: SetNull, onUpdate: NoAction)
+
+  @@map("discount_rule")
 }
 
 model cart {

@@ -1,5 +1,6 @@
 // public/js/cart.js
-// Drives cart.html — view, update, delete cart items
+// Drives cart.html
+// UX: quantity stepper (+ / −) auto-saves on change, "Remove" deletes the item.
 
 function apiFetch(url, method, body) {
   return new Promise((resolve) => {
@@ -8,40 +9,36 @@ function apiFetch(url, method, body) {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-  // Set nav username
   const auth = await apiFetch('/api/auth/status');
   if (auth.authenticated) {
     document.getElementById('nav-username').textContent = `Welcome, ${auth.user.name}`;
   }
-
   loadCart();
 });
 
-// ─────────────────────────────────────────────
-// Load cart from backend and render
-// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 async function loadCart() {
-  const loading   = document.getElementById('loading');
-  const emptyCart = document.getElementById('empty-cart');
-  const content   = document.getElementById('cart-content');
-  const errorEl   = document.getElementById('error-message');
+  const loading = document.getElementById('loading');
+  const empty   = document.getElementById('empty-cart');
+  const content = document.getElementById('cart-content');
+  const errEl   = document.getElementById('action-error');
 
-  loading.style.display   = 'block';
-  emptyCart.style.display = 'none';
-  content.style.display   = 'none';
-  errorEl.style.display   = 'none';
+  loading.style.display = 'block';
+  empty.style.display   = 'none';
+  content.style.display = 'none';
+  errEl.style.display   = 'none';
 
   const data = await apiFetch('/cart/items');
   loading.style.display = 'none';
 
   if (!data.success) {
-    errorEl.textContent   = data.message || 'Failed to load cart.';
-    errorEl.style.display = 'block';
+    errEl.textContent   = data.message || 'Failed to load cart.';
+    errEl.style.display = 'block';
     return;
   }
 
   if (!data.items || data.items.length === 0) {
-    emptyCart.style.display = 'block';
+    empty.style.display = 'block';
     return;
   }
 
@@ -50,119 +47,128 @@ async function loadCart() {
   content.style.display = 'block';
 }
 
-// ─────────────────────────────────────────────
-// Render cart item rows into the table
-// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 function renderCartItems(items) {
-  const tbody = document.getElementById('cart-table-body');
-  tbody.innerHTML = '';
+  const list = document.getElementById('cart-items-list');
+  list.innerHTML = '';
 
-  items.forEach(item => {
+  items.forEach((item, idx) => {
     const unitPrice = parseFloat(item.product.price);
-    const subtotal  = (unitPrice * item.quantity).toFixed(2);
+    const div = document.createElement('div');
+    div.className = 'cart-item-card px-3 py-3';
+    div.id = `item-${item.cartItemId}`;
 
-    const tr = document.createElement('tr');
-    tr.id = `row-${item.cartItemId}`;
-    tr.innerHTML = `
-      <td>${escapeHtml(item.product.name)}</td>
-      <td>${escapeHtml(item.product.category || '—')}</td>
-      <td>$${unitPrice.toFixed(2)}</td>
-      <td>
-        <input type="number"
-               class="form-control form-control-sm"
-               id="qty-${item.cartItemId}"
-               value="${item.quantity}"
-               min="1" max="99"
-               style="width:80px;">
-      </td>
-      <td id="subtotal-${item.cartItemId}">$${subtotal}</td>
-      <td>
-        <button class="btn btn-primary btn-sm me-1"
-                onclick="handleUpdate(${item.cartItemId})">Update</button>
-        <button class="btn btn-danger btn-sm"
-                onclick="handleDelete(${item.cartItemId})">Delete</button>
-      </td>`;
-    tbody.appendChild(tr);
+    div.innerHTML = `
+      <div class="d-flex align-items-start gap-3">
+        <!-- Info -->
+        <div class="flex-grow-1">
+          <div class="fw-semibold">${escapeHtml(item.product.name)}</div>
+          <div class="text-muted" style="font-size:.85rem;">
+            ${escapeHtml(item.product.category || '')}
+          </div>
+          <div class="text-muted" style="font-size:.85rem;">
+            Unit price: $${unitPrice.toFixed(2)}
+          </div>
+        </div>
 
-    // Live subtotal preview when qty input changes
-    document.getElementById(`qty-${item.cartItemId}`).addEventListener('input', () => {
-      const newQty = parseInt(document.getElementById(`qty-${item.cartItemId}`).value) || 0;
-      document.getElementById(`subtotal-${item.cartItemId}`).textContent =
-        `$${(unitPrice * newQty).toFixed(2)}`;
-    });
+        <!-- Qty stepper -->
+        <div class="d-flex flex-column align-items-center gap-1">
+          <div class="qty-stepper">
+            <button class="btn btn-outline-secondary btn-sm"
+                    onclick="stepQty(${item.cartItemId}, ${unitPrice}, -1)"
+                    id="btn-minus-${item.cartItemId}">−</button>
+            <span class="qty-display" id="qty-${item.cartItemId}">${item.quantity}</span>
+            <button class="btn btn-outline-secondary btn-sm"
+                    onclick="stepQty(${item.cartItemId}, ${unitPrice}, +1)"
+                    id="btn-plus-${item.cartItemId}">+</button>
+          </div>
+          <span class="item-subtotal" id="subtotal-${item.cartItemId}">
+            $${(unitPrice * item.quantity).toFixed(2)}
+          </span>
+        </div>
+
+        <!-- Remove -->
+        <div class="ms-2 d-flex align-items-start pt-1">
+          <button class="btn btn-link text-danger p-0" style="font-size:.85rem; text-decoration:none;"
+                  onclick="handleRemove(${item.cartItemId})">Remove</button>
+        </div>
+      </div>`;
+
+    list.appendChild(div);
   });
 }
 
-// ─────────────────────────────────────────────
-// Render cart summary from backend data
-// ─────────────────────────────────────────────
-function renderSummary(summary) {
-  document.getElementById('summary-item-count').textContent = summary.totalItems;
-  document.getElementById('summary-total-qty').textContent  = summary.totalQuantity;
-  document.getElementById('summary-subtotal').textContent   = `$${summary.subtotal}`;
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// + / − stepper — immediately calls PUT to update qty, refreshes subtotal & summary
+// ─────────────────────────────────────────────────────────────────────────────
+async function stepQty(cartItemId, unitPrice, delta) {
+  const qtyEl = document.getElementById(`qty-${cartItemId}`);
+  const errEl = document.getElementById('action-error');
+  errEl.style.display = 'none';
 
-// ─────────────────────────────────────────────
-// Update a single cart item quantity
-// ─────────────────────────────────────────────
-async function handleUpdate(cartItemId) {
-  const successEl = document.getElementById('action-success');
-  const errorEl   = document.getElementById('action-error');
+  const current  = parseInt(qtyEl.textContent) || 1;
+  const newQty   = current + delta;
 
-  successEl.style.display = 'none';
-  errorEl.style.display   = 'none';
+  if (newQty < 1) {
+    // At qty 1 pressing − removes the item (like UNIQLO behaviour)
+    handleRemove(cartItemId);
+    return;
+  }
 
-  const quantity = parseInt(document.getElementById(`qty-${cartItemId}`).value);
+  // Optimistic update in the UI
+  qtyEl.textContent = newQty;
+  document.getElementById(`subtotal-${cartItemId}`).textContent =
+    `$${(unitPrice * newQty).toFixed(2)}`;
 
-  const result = await apiFetch(`/cart/items/${cartItemId}`, 'PUT', { quantity });
+  // Persist to backend
+  const result = await apiFetch(`/cart/items/${cartItemId}`, 'PUT', { quantity: newQty });
 
   if (result.success) {
-    successEl.textContent   = 'Item updated successfully.';
-    successEl.style.display = 'block';
-    // Update summary from backend response
     renderSummary(result.summary);
   } else {
-    errorEl.textContent   = result.message || 'Failed to update item.';
-    errorEl.style.display = 'block';
+    // Rollback optimistic update
+    qtyEl.textContent = current;
+    document.getElementById(`subtotal-${cartItemId}`).textContent =
+      `$${(unitPrice * current).toFixed(2)}`;
+    errEl.textContent   = result.message || 'Failed to update quantity.';
+    errEl.style.display = 'block';
   }
 }
 
-// ─────────────────────────────────────────────
-// Delete a single cart item
-// ─────────────────────────────────────────────
-async function handleDelete(cartItemId) {
-  if (!confirm('Remove this item from your cart?')) return;
+// ─────────────────────────────────────────────────────────────────────────────
+// Remove item — no confirm dialog, just fires DELETE
+// ─────────────────────────────────────────────────────────────────────────────
+async function handleRemove(cartItemId) {
+  const errEl   = document.getElementById('action-error');
+  const empty   = document.getElementById('empty-cart');
+  const content = document.getElementById('cart-content');
 
-  const successEl = document.getElementById('action-success');
-  const errorEl   = document.getElementById('action-error');
-  const emptyCart = document.getElementById('empty-cart');
-  const content   = document.getElementById('cart-content');
-
-  successEl.style.display = 'none';
-  errorEl.style.display   = 'none';
+  errEl.style.display = 'none';
 
   const result = await apiFetch(`/cart/items/${cartItemId}`, 'DELETE');
 
   if (result.success) {
-    // Remove the row from the table
-    const row = document.getElementById(`row-${cartItemId}`);
+    const row = document.getElementById(`item-${cartItemId}`);
     if (row) row.remove();
 
-    // Update summary from backend response
     renderSummary(result.summary);
 
-    successEl.textContent   = 'Item removed from cart.';
-    successEl.style.display = 'block';
-
-    // If no rows left, show empty state
-    if (document.getElementById('cart-table-body').children.length === 0) {
-      content.style.display   = 'none';
-      emptyCart.style.display = 'block';
+    // If nothing left, switch to empty state
+    if (document.getElementById('cart-items-list').children.length === 0) {
+      content.style.display = 'none';
+      empty.style.display   = 'block';
     }
   } else {
-    errorEl.textContent   = result.message || 'Failed to delete item.';
-    errorEl.style.display = 'block';
+    errEl.textContent   = result.message || 'Failed to remove item.';
+    errEl.style.display = 'block';
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+function renderSummary(summary) {
+  document.getElementById('summary-item-count').textContent = summary.totalItems;
+  document.getElementById('summary-total-qty').textContent  = summary.totalQuantity;
+  document.getElementById('summary-subtotal').textContent   = `$${summary.subtotal}`;
 }
 
 function escapeHtml(str) {

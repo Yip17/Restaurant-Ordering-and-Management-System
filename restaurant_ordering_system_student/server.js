@@ -39,6 +39,9 @@ app.use('/orders', require('./src/routes/orders'));
 // Cart routes (add, view, update, delete cart items)
 app.use('/cart', require('./src/routes/cart'));
 
+// Checkout routes (pricing summary with discounts)
+app.use('/checkout', require('./src/routes/checkout'));
+
 // Feedback routes (view, create, edit feedback + responses)
 app.use('/feedback', require('./src/routes/feedback'));
 

@@ -33,4 +33,13 @@ router.get('/dashboard/product-feedback', ensureAuthenticated, ensureAdmin, Dash
 // Toggles a product's is_available flag (admin only).
 router.patch('/dashboard/product-availability', ensureAuthenticated, ensureAdmin, DashboardController.updateProductAvailability);
 
+// ── Promotions management (admin only) ───────────────────────────────────────
+const PromotionController = require('../controllers/promotionController');
+
+router.get('/promotions',          ensureAuthenticated, ensureAdmin, PromotionController.list);
+router.get('/promotions/products', ensureAuthenticated, ensureAdmin, PromotionController.listProducts);
+router.post('/promotions',         ensureAuthenticated, ensureAdmin, PromotionController.create);
+router.put('/promotions/:id',      ensureAuthenticated, ensureAdmin, PromotionController.update);
+router.delete('/promotions/:id',  ensureAuthenticated, ensureAdmin, PromotionController.remove);
+
 module.exports = router;
