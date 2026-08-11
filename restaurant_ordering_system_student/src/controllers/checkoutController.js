@@ -99,9 +99,7 @@ class CheckoutController {
         try {
             const memberId       = req.session.userId;
             const deliveryMethod = req.body.deliveryMethod === 'pickup' ? 'pickup' : 'delivery';
-            const deliveryAddress = deliveryMethod === 'pickup'
-                ? 'Self-Collect'
-                : (req.body.delivery_address || '').trim();
+            const deliveryAddress = deliveryMethod === 'pickup' ? 'Self-Collect' : (req.body.delivery_address || '').trim();
 
             if (deliveryMethod === 'delivery' && !deliveryAddress) {
                 return res.status(400).json({

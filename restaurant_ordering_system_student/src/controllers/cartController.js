@@ -9,7 +9,6 @@ class CartController {
             const memberId  = req.session.userId;
             const { product_id, quantity = 1 } = req.body;
 
-            // Backend validation
             if (!product_id) {
                 return res.status(400).json({ success: false, message: 'Product ID is required.' });
             }
@@ -24,14 +23,9 @@ class CartController {
 
         } catch (err) {
             console.error('createCartItem error:', err);
-
             if (err.message === 'Product not found') {
                 return res.status(404).json({ success: false, message: 'Product not found.' });
             }
-            if (err.message === 'Quantity must be at least 1') {
-                return res.status(400).json({ success: false, message: err.message });
-            }
-
             return res.status(500).json({ success: false, message: 'Failed to add item to cart.' });
         }
     }
@@ -40,28 +34,12 @@ class CartController {
     static async getCartItems(req, res) {
         try {
             const memberId = req.session.userId;
-
             const items   = await Cart.getCartItems(memberId);
             const summary = await Cart.getCartSummary(memberId);
-
             return res.json({ success: true, items, summary });
-
         } catch (err) {
             console.error('getCartItems error:', err);
             return res.status(500).json({ success: false, message: 'Failed to retrieve cart.' });
-        }
-    }
-
-    // GET /cart/summary — backend-calculated summary only
-    static async getCartSummary(req, res) {
-        try {
-            const memberId = req.session.userId;
-            const summary  = await Cart.getCartSummary(memberId);
-            return res.json({ success: true, summary });
-
-        } catch (err) {
-            console.error('getCartSummary error:', err);
-            return res.status(500).json({ success: false, message: 'Failed to retrieve cart summary.' });
         }
     }
 
@@ -82,25 +60,17 @@ class CartController {
             }
 
             const updatedItem = await Cart.updateCartItem(memberId, cartItemId, qty);
-
-            // Re-fetch summary after update
-            const summary = await Cart.getCartSummary(memberId);
-
+            const summary     = await Cart.getCartSummary(memberId);
             return res.json({ success: true, cartItem: updatedItem, summary });
 
         } catch (err) {
             console.error('updateCartItem error:', err);
-
             if (err.message === 'Cart item not found') {
                 return res.status(404).json({ success: false, message: 'Cart item not found.' });
             }
             if (err.message.startsWith('Unauthorized')) {
                 return res.status(403).json({ success: false, message: err.message });
             }
-            if (err.message === 'Quantity must be at least 1') {
-                return res.status(400).json({ success: false, message: err.message });
-            }
-
             return res.status(500).json({ success: false, message: 'Failed to update cart item.' });
         }
     }
@@ -116,22 +86,17 @@ class CartController {
             }
 
             await Cart.deleteCartItem(memberId, cartItemId);
-
-            // Re-fetch summary after delete
             const summary = await Cart.getCartSummary(memberId);
-
             return res.json({ success: true, summary });
 
         } catch (err) {
             console.error('deleteCartItem error:', err);
-
             if (err.message === 'Cart item not found') {
                 return res.status(404).json({ success: false, message: 'Cart item not found.' });
             }
             if (err.message.startsWith('Unauthorized')) {
                 return res.status(403).json({ success: false, message: err.message });
             }
-
             return res.status(500).json({ success: false, message: 'Failed to delete cart item.' });
         }
     }
@@ -142,7 +107,6 @@ class CartController {
             const memberId = req.session.userId;
             await Cart.clearCart(memberId);
             return res.json({ success: true, message: 'Cart cleared.' });
-
         } catch (err) {
             console.error('clearCart error:', err);
             return res.status(500).json({ success: false, message: 'Failed to clear cart.' });
