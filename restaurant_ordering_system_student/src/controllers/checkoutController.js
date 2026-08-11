@@ -88,55 +88,95 @@ class CheckoutController {
         }
     }
 
-    // POST /checkout/place-order — convert cart items to sale order via place_orders
-    static async placeOrder(req, res) {
+    // POST /checkout/place-orders
+    // Body: { delivery_address, deliveryMethod }
+    // Flow:
+    //   1. Fetch cart items via Prisma to find available vs unavailable.
+    //   2. Run DiscountEngine on available items only → correct grandTotal.
+    //   3. Call place_orders procedure (creates order with raw totals).
+    //   4. Update the order's total_amount to the discounted grandTotal.
+    static async placeOrders(req, res) {
         try {
-            const memberId = req.session.userId;
-            const { delivery_address, deliveryMethod } = req.body;
+            const memberId       = req.session.userId;
+            const deliveryMethod = req.body.deliveryMethod === 'pickup' ? 'pickup' : 'delivery';
+            const deliveryAddress = deliveryMethod === 'pickup'
+                ? 'Self-Collect'
+                : (req.body.delivery_address || '').trim();
 
-            let address = (delivery_address || '').trim();
-            if (deliveryMethod === 'pickup') {
-                address = address || 'Self-Collect';
-            }
-
-            if (!address) {
+            if (deliveryMethod === 'delivery' && !deliveryAddress) {
                 return res.status(400).json({
                     success: false,
                     message: 'Delivery address is required.'
                 });
             }
 
-            const { order, processedCount, skippedCount } =
-                await SaleOrder.placeOrdersFromCart({ memberId, deliveryAddress: address });
+            // ── Step 1: get cart with product info ─────────────────────────
+            const prisma = require('../config/prisma');
+            const cart = await prisma.cart.findUnique({
+                where:   { memberId },
+                include: { cartItem: { include: { product: true }, orderBy: { createdAt: 'asc' } } }
+            });
 
-            if (processedCount === 0) {
+            if (!cart || cart.cartItem.length === 0) {
+                return res.status(400).json({ success: false, message: 'Your cart is empty.' });
+            }
+
+            // ── Step 2: identify available items and run discount engine ───
+            const availableItems   = cart.cartItem.filter(i => i.product.isAvailable);
+            const unavailableItems = cart.cartItem.filter(i => !i.product.isAvailable);
+
+            if (availableItems.length === 0) {
                 return res.status(400).json({
-                    success: false,
-                    message: 'No items could be placed. All items in your cart are currently unavailable.',
-                    processedCount,
-                    skippedCount
+                    success:      false,
+                    message:      'None of your cart items are currently available.',
+                    skippedCount: unavailableItems.length,
+                    skippedNames: unavailableItems.map(i => i.product.name)
                 });
             }
 
-            let message = 'Order placed successfully.';
-            if (skippedCount > 0) {
-                message += ` ${skippedCount} unavailable item(s) remain in your cart.`;
+            // Calculate discounts on available items only — unavailable items
+            // are excluded so they don't inflate the subtotal used for
+            // CART_VALUE and DELIVERY_TIERED thresholds.
+            const { calculateSummary } = require('../models/DiscountEngine');
+            const summary = await calculateSummary(availableItems, deliveryMethod);
+
+            // ── Step 3: call stored procedure ─────────────────────────────
+            const result = await SaleOrder.placeOrdersFromCart({ memberId, deliveryAddress });
+
+            if (result.processedCount === 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'No orders were created. Items may have become unavailable.'
+                });
             }
 
+            // ── Step 4: update order total with discounted amount ──────────
+            // summary.grandTotal is already the correct discounted total
+            // for all available items. Update the single order created by the procedure.
+            await SaleOrder.updateTotalAmount(result.orderId, summary.grandTotal);
+
+            const order = await SaleOrder.findById(result.orderId);
+
+            const skippedNames = unavailableItems.map(i => i.product.name);
+
             return res.status(201).json({
-                success: true,
+                success:        true,
                 order,
-                processedCount,
-                skippedCount,
-                message
+                processedCount: result.processedCount,
+                skippedCount:   result.skippedCount,
+                skippedNames,
+                grandTotal:     summary.grandTotal,
+                message: result.skippedCount > 0
+                    ? `${result.processedCount} item(s) ordered. ${result.skippedCount} unavailable item(s) remain in your cart.`
+                    : `All ${result.processedCount} item(s) ordered successfully.`
             });
 
         } catch (err) {
-            console.error('checkoutController.placeOrder error:', err);
+            console.error('checkoutController.placeOrders error:', err);
             if (err.userFacing) {
                 return res.status(400).json({ success: false, message: err.message });
             }
-            return res.status(500).json({ success: false, message: 'Failed to place order.' });
+            return res.status(500).json({ success: false, message: 'Failed to place orders.' });
         }
     }
 }

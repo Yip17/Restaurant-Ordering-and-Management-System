@@ -100,18 +100,6 @@
             </div>
           </div>
 
-          <!-- Delivery address (shown for delivery only) -->
-          <div class="card mb-3" id="address-card">
-            <div class="card-header fw-semibold">Delivery Address</div>
-            <div class="card-body">
-              <input type="text" class="form-control" id="delivery-address"
-                     placeholder="Enter your delivery address" maxlength="255">
-            </div>
-          </div>
-
-          <!-- Place order result -->
-          <div id="place-order-msg" class="alert" style="display:none;"></div>
-
           <!-- Applied discounts (shown only when something fires) -->
           <div id="applied-card" class="card mb-3 border-success" style="display:none;">
             <div class="card-header text-success fw-semibold">🎉 Discounts Applied</div>
@@ -121,7 +109,7 @@
           </div>
 
           <!-- Price summary -->
-          <div class="card">
+          <div class="card mb-3">
             <div class="card-header fw-semibold">Price Summary</div>
             <div class="card-body p-0">
               <table class="table table-sm mb-0">
@@ -151,12 +139,24 @@
             </div>
           </div>
 
-          <!-- Place Order -->
-          <div class="mt-3">
-            <button class="btn btn-primary btn-lg w-100" id="btn-place-order" onclick="placeOrder()">
-              Place Order
+          <!-- Delivery address (hidden when pickup selected) -->
+          <div class="card mb-3" id="address-card">
+            <div class="card-header fw-semibold">Delivery Address</div>
+            <div class="card-body">
+              <input type="text" class="form-control" id="delivery-address"
+                     placeholder="Enter your delivery address" maxlength="255">
+            </div>
+          </div>
+
+          <!-- Place Order button -->
+          <div class="d-grid mb-3">
+            <button class="btn btn-success btn-lg" id="btn-place-order" onclick="placeOrders()">
+              ✅ Place Order
             </button>
           </div>
+
+          <!-- Order result message -->
+          <div id="place-order-msg" class="alert" style="display:none;"></div>
 
         </div><!-- /col-lg-7 -->
 

@@ -91,7 +91,8 @@ class SaleOrder {
     }
 
     // Place orders from cart — CALL place_orders($1,$2,NULL,NULL,NULL)
-    // Processes each cart item; unavailable items are skipped without rollback.
+    // Matches the 5-parameter signature: (member_id, delivery_address, OUT order_id, OUT processed, OUT skipped)
+    // Returns { orderId, processedCount, skippedCount }
     static async placeOrdersFromCart({ memberId, deliveryAddress }) {
         try {
             const result = await pool.query(
@@ -99,12 +100,11 @@ class SaleOrder {
                 [memberId, deliveryAddress]
             );
             const row = result.rows[0];
-            const orderId         = row.p_order_id;
-            const processedCount  = row.p_processed_count;
-            const skippedCount    = row.p_skipped_count;
-
-            const order = orderId ? await SaleOrder.findById(orderId) : null;
-            return { order, processedCount, skippedCount };
+            return {
+                orderId:       row.p_order_id,
+                processedCount: row.p_processed_count || 0,
+                skippedCount:  row.p_skipped_count  || 0
+            };
         } catch (err) {
             const clean = parseDbError(err);
             if (clean) {
@@ -114,6 +114,14 @@ class SaleOrder {
             }
             throw err;
         }
+    }
+
+    // Update a sale_order's total_amount after discount calculation
+    static async updateTotalAmount(orderId, totalAmount) {
+        await pool.query(
+            'UPDATE sale_order SET total_amount = $1 WHERE order_id = $2',
+            [totalAmount, orderId]
+        );
     }
 
     // Update order status — CALL update_order_status($1,$2)
