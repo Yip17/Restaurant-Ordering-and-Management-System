@@ -38,6 +38,8 @@ function setDelivery(method) {
   document.getElementById('opt-pickup').classList.toggle('active',   method === 'pickup');
   document.getElementById('delivery-label').textContent =
     method === 'pickup' ? 'Service Fee' : 'Delivery Fee';
+  document.getElementById('address-card').style.display =
+    method === 'pickup' ? 'none' : 'block';
   fetchSummary();
 }
 
@@ -265,6 +267,51 @@ function setPromoState(el, isActive) {
     el.classList.add('p-locked');
     if (icon) icon.textContent = '🔒';
   }
+}
+
+// ── Place order ───────────────────────────────────────────────────────────────
+function placeOrder() {
+  const btn     = document.getElementById('btn-place-order');
+  const msgEl   = document.getElementById('place-order-msg');
+  const address = document.getElementById('delivery-address').value.trim();
+
+  if (deliveryMethod === 'delivery' && !address) {
+    msgEl.className = 'alert alert-danger';
+    msgEl.style.display = 'block';
+    msgEl.textContent = 'Please enter a delivery address.';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Placing Order…';
+  msgEl.style.display = 'none';
+
+  fetchMethod('/checkout/place-order', (status, data) => {
+    btn.disabled = false;
+    btn.textContent = 'Place Order';
+
+    if (data.success) {
+      msgEl.className = 'alert alert-success';
+      msgEl.style.display = 'block';
+      msgEl.innerHTML =
+        `${esc(data.message)} ` +
+        `<a href="/orders/my-orders" class="alert-link">View My Orders →</a>`;
+
+      if (data.skippedCount > 0) {
+        fetchSummary();
+      } else {
+        setTimeout(() => { window.location.href = '/orders/my-orders'; }, 1500);
+      }
+      return;
+    }
+
+    msgEl.className = 'alert alert-danger';
+    msgEl.style.display = 'block';
+    msgEl.textContent = data.message || 'Failed to place order.';
+  }, 'POST', {
+    deliveryMethod,
+    delivery_address: deliveryMethod === 'pickup' ? 'Self-Collect' : address
+  });
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────

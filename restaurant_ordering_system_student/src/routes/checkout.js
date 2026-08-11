@@ -16,4 +16,7 @@ router.get('/summary', ensureAuthenticated, CheckoutController.getSummary);
 // GET /checkout/available-discounts — JSON: all active discount rules (for display)
 router.get('/available-discounts', ensureAuthenticated, CheckoutController.getAvailableDiscounts);
 
+// POST /checkout/place-order — JSON: place order from cart via place_orders procedure
+router.post('/place-order', ensureAuthenticated, CheckoutController.placeOrder);
+
 module.exports = router;

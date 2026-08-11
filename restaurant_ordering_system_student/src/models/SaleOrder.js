@@ -26,7 +26,8 @@ function parseDbError(err) {
         PRODUCT_NOT_FOUND:  "Product not found or unavailable.",
         INVALID_QUANTITY:   "Quantity must be at least 1.",
         INVALID_STATUS:     "Invalid order status.",
-        BLANK_ADDRESS:      "Delivery address cannot be empty."
+        BLANK_ADDRESS:      "Delivery address cannot be empty.",
+        CART_NOT_FOUND:     "Cart not found."
     };
 
     for (let code in codes) {
@@ -78,6 +79,32 @@ class SaleOrder {
             );
             const orderId = result.rows[0].p_order_id;
             return await SaleOrder.findById(orderId);
+        } catch (err) {
+            const clean = parseDbError(err);
+            if (clean) {
+                const error = new Error(clean);
+                error.userFacing = true;
+                throw error;
+            }
+            throw err;
+        }
+    }
+
+    // Place orders from cart — CALL place_orders($1,$2,NULL,NULL,NULL)
+    // Processes each cart item; unavailable items are skipped without rollback.
+    static async placeOrdersFromCart({ memberId, deliveryAddress }) {
+        try {
+            const result = await pool.query(
+                'CALL place_orders($1, $2, NULL, NULL, NULL)',
+                [memberId, deliveryAddress]
+            );
+            const row = result.rows[0];
+            const orderId         = row.p_order_id;
+            const processedCount  = row.p_processed_count;
+            const skippedCount    = row.p_skipped_count;
+
+            const order = orderId ? await SaleOrder.findById(orderId) : null;
+            return { order, processedCount, skippedCount };
         } catch (err) {
             const clean = parseDbError(err);
             if (clean) {

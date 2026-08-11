@@ -2,6 +2,7 @@
 
 const { getCheckoutSummary } = require('../models/Checkout');
 const { getActiveRules }     = require('../models/DiscountEngine');
+const SaleOrder                = require('../models/SaleOrder');
 
 class CheckoutController {
 
@@ -84,6 +85,58 @@ class CheckoutController {
         } catch (err) {
             console.error('checkoutController.getAvailableDiscounts error:', err);
             return res.status(500).json({ success: false, message: 'Failed to load discounts.' });
+        }
+    }
+
+    // POST /checkout/place-order — convert cart items to sale order via place_orders
+    static async placeOrder(req, res) {
+        try {
+            const memberId = req.session.userId;
+            const { delivery_address, deliveryMethod } = req.body;
+
+            let address = (delivery_address || '').trim();
+            if (deliveryMethod === 'pickup') {
+                address = address || 'Self-Collect';
+            }
+
+            if (!address) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Delivery address is required.'
+                });
+            }
+
+            const { order, processedCount, skippedCount } =
+                await SaleOrder.placeOrdersFromCart({ memberId, deliveryAddress: address });
+
+            if (processedCount === 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'No items could be placed. All items in your cart are currently unavailable.',
+                    processedCount,
+                    skippedCount
+                });
+            }
+
+            let message = 'Order placed successfully.';
+            if (skippedCount > 0) {
+                message += ` ${skippedCount} unavailable item(s) remain in your cart.`;
+            }
+
+            return res.status(201).json({
+                success: true,
+                order,
+                processedCount,
+                skippedCount,
+                message
+            });
+
+        } catch (err) {
+            console.error('checkoutController.placeOrder error:', err);
+            if (err.userFacing) {
+                return res.status(400).json({ success: false, message: err.message });
+            }
+            return res.status(500).json({ success: false, message: 'Failed to place order.' });
         }
     }
 }
