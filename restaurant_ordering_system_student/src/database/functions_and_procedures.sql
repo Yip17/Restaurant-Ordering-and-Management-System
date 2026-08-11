@@ -433,10 +433,10 @@ $$;
 -- Processes all items in a member's cart into a single sale order.
 --
 -- Transaction handling:
---   Each cart item is processed inside a SAVEPOINT subtransaction.
---   Available items are committed into the order; unavailable items raise
---   NO_DATA_FOUND (STRICT select on is_available = true) and roll back only
---   that item's savepoint — previously processed items are preserved.
+--   Each cart item runs inside a subtransaction (BEGIN…EXCEPTION block).
+--   Available items complete and persist; unavailable items raise NO_DATA_FOUND
+--   via STRICT select, rolling back only that subtransaction while previously
+--   processed items are preserved in the outer transaction.
 --
 -- Validates:
 --   • member exists
@@ -490,10 +490,12 @@ BEGIN
          WHERE ci.cart_id = v_cart_id
          ORDER BY ci.cart_item_id
     LOOP
-        SAVEPOINT process_cart_item;
-
         BEGIN
-            -- STRICT select fails with NO_DATA_FOUND when product is missing or unavailable
+            -- STRICT select raises NO_DATA_FOUND when product is missing or unavailable
+            -- Process this cart item.
+            -- This BEGIN ... EXCEPTION block acts as a subtransaction.
+            -- If an exception occurs, PostgreSQL automatically rolls back
+            -- all changes made inside this block.
             SELECT p.price
               INTO STRICT v_unit_price
               FROM product p
@@ -517,12 +519,16 @@ BEGIN
 
             DELETE FROM cart_item WHERE cart_item_id = v_item.cart_item_id;
 
-            RELEASE SAVEPOINT process_cart_item;
             p_processed_count := p_processed_count + 1;
 
         EXCEPTION
             WHEN NO_DATA_FOUND THEN
-                ROLLBACK TO SAVEPOINT process_cart_item;
+            -- The item is unavailable.
+            -- PostgreSQL has automatically rolled back this item's
+            -- changes. The item therefore remains in the cart.
+            --
+            -- Previously successful cart items are NOT rolled back
+            -- because they were processed in earlier completed blocks.
                 p_skipped_count := p_skipped_count + 1;
         END;
     END LOOP;
