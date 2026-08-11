@@ -10,9 +10,16 @@ const prisma = require('../config/prisma');
 function matchingTier(rules, value) {
     const satisfied = rules.filter(r => value >= parseFloat(r.thresholdValue));
     if (satisfied.length === 0) return null;
-    return satisfied.reduce((best, r) =>
-        Number(r.thresholdValue) > Number(best.thresholdValue) ? r : best
-    );
+    
+    let best = satisfied[0];
+
+    for (let i = 1; i < satisfied.length; i++) {
+        if (Number(satisfied[i].thresholdValue) > Number(best.thresholdValue)) {
+            best = satisfied[i];
+        }
+    }
+
+    return best;
 }
 
 async function getActiveRules() {
@@ -26,10 +33,11 @@ async function getActiveRules() {
 async function calculateSummary(cartItems, deliveryMethod = 'delivery') {
     const rules = await getActiveRules();
 
-    const cartSubtotal = cartItems.reduce(
-        (sum, item) => sum + parseFloat(item.product.price) * item.quantity,
-        0
-    );
+    let cartSubtotal = 0;
+
+    for (let i = 0; i < cartItems.length; i++) {
+        cartSubtotal = cartSubtotal + parseFloat(cartItems[i].product.price) * cartItems[i].quantity;
+    }
 
     // ── 1. Product discounts (one rule per product) ───────────────────────
     const productRules = rules.filter(r => r.discountType === 'QUANTITY_PRODUCT');

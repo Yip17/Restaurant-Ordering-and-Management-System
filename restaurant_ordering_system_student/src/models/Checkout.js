@@ -1,14 +1,11 @@
 // src/models/Checkout.js
-// Reads the member's cart and runs the DiscountEngine to produce a pricing summary.
+// Prisma query for reading the member's cart at checkout.
 
 const prisma = require('../config/prisma');
-const { calculateSummary } = require('./DiscountEngine');
 
-/**
- * Read cart items for a member (with product details).
- * Throws if the cart is empty.
- */
-async function getCartItemsForCheckout(memberId) {
+// Returns all cart items with product details for a member.
+// Throws 'Cart is empty' if the cart has no items.
+async function getCartItems(memberId) {
     const cart = await prisma.cart.findUnique({
         where:   { memberId },
         include: {
@@ -26,17 +23,4 @@ async function getCartItemsForCheckout(memberId) {
     return cart.cartItem;
 }
 
-/**
- * Full checkout summary: cart items + discount calculation.
- *
- * @param {number} memberId
- * @param {string} deliveryMethod  'delivery' | 'pickup'
- * @returns {{ cartItems, summary }}
- */
-async function getCheckoutSummary(memberId, deliveryMethod = 'delivery') {
-    const cartItems = await getCartItemsForCheckout(memberId);
-    const summary   = await calculateSummary(cartItems, deliveryMethod);
-    return { cartItems, summary };
-}
-
-module.exports = { getCheckoutSummary };
+module.exports = { getCartItems };

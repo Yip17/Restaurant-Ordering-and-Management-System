@@ -1,9 +1,8 @@
 // src/controllers/checkoutController.js
 
-const { getCheckoutSummary }          = require('../models/Checkout');
+const { getCartItems }                     = require('../models/Checkout');
 const { getActiveRules, calculateSummary } = require('../models/DiscountEngine');
-const SaleOrder                        = require('../models/SaleOrder');
-const prisma                           = require('../config/prisma');
+const SaleOrder                            = require('../models/SaleOrder');
 
 class CheckoutController {
 
@@ -13,9 +12,9 @@ class CheckoutController {
             const memberId       = req.session.userId;
             const deliveryMethod = req.query.deliveryMethod === 'pickup' ? 'pickup' : 'delivery';
 
-            const { cartItems, summary } = await getCheckoutSummary(memberId, deliveryMethod);
+            const cartItems = await getCartItems(memberId);
+            const summary   = await calculateSummary(cartItems, deliveryMethod);
 
-            // Shape items for the frontend
             const items = cartItems.map(item => ({
                 cartItemId:  item.cartItemId,
                 productId:   item.productId,
@@ -38,12 +37,10 @@ class CheckoutController {
     }
 
     // GET /checkout/available-discounts
-    // Returns all active discount rules grouped by category for the promotions panel.
     static async getAvailableDiscounts(req, res) {
         try {
             const rules = await getActiveRules();
 
-            // Product discounts — both specific-product and any-item
             const productDiscounts = rules
                 .filter(r => r.discountType === 'QUANTITY_PRODUCT')
                 .map(r => ({
@@ -59,7 +56,6 @@ class CheckoutController {
                     return a.threshold - b.threshold;
                 });
 
-            // Cart value discounts — tiered
             const cartDiscounts = rules
                 .filter(r => r.discountType === 'CART_VALUE')
                 .map(r => ({
@@ -70,7 +66,6 @@ class CheckoutController {
                 }))
                 .sort((a, b) => a.threshold - b.threshold);
 
-            // Delivery tiers
             const deliveryRules = rules
                 .filter(r => r.discountType === 'DELIVERY_TIERED')
                 .map(r => ({
@@ -91,37 +86,22 @@ class CheckoutController {
 
     // POST /checkout/place-orders
     // Body: { delivery_address, deliveryMethod }
-    // Flow:
-    //   1. Fetch cart items via Prisma to find available vs unavailable.
-    //   2. Run DiscountEngine on available items only → correct grandTotal.
-    //   3. Call place_orders procedure (creates order with raw totals).
-    //   4. Update the order's total_amount to the discounted grandTotal.
     static async placeOrders(req, res) {
         try {
-            const memberId       = req.session.userId;
-            const deliveryMethod = req.body.deliveryMethod === 'pickup' ? 'pickup' : 'delivery';
-            const deliveryAddress = deliveryMethod === 'pickup' ? 'Self-Collect' : (req.body.delivery_address || '').trim();
+            const memberId        = req.session.userId;
+            const deliveryMethod  = req.body.deliveryMethod === 'pickup' ? 'pickup' : 'delivery';
+            const deliveryAddress = deliveryMethod === 'pickup'
+                ? 'Self-Collect'
+                : (req.body.delivery_address || '').trim();
 
             if (deliveryMethod === 'delivery' && !deliveryAddress) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Delivery address is required.'
-                });
+                return res.status(400).json({ success: false, message: 'Delivery address is required.' });
             }
 
-            // ── Step 1: get cart with product info ─────────────────────────
-            const cart = await prisma.cart.findUnique({
-                where:   { memberId },
-                include: { cartItem: { include: { product: true }, orderBy: { createdAt: 'asc' } } }
-            });
-
-            if (!cart || cart.cartItem.length === 0) {
-                return res.status(400).json({ success: false, message: 'Your cart is empty.' });
-            }
-
-            // ── Step 2: identify available items and run discount engine ───
-            const availableItems   = cart.cartItem.filter(i => i.product.isAvailable);
-            const unavailableItems = cart.cartItem.filter(i => !i.product.isAvailable);
+            // Read cart and split available vs unavailable
+            const cartItems        = await getCartItems(memberId);
+            const availableItems   = cartItems.filter(i => i.product.isAvailable);
+            const unavailableItems = cartItems.filter(i => !i.product.isAvailable);
 
             if (availableItems.length === 0) {
                 return res.status(400).json({
@@ -132,12 +112,10 @@ class CheckoutController {
                 });
             }
 
-            // Calculate discounts on available items only — unavailable items
-            // are excluded so they don't inflate the subtotal used for
-            // CART_VALUE and DELIVERY_TIERED thresholds.
+            // Calculate discounts on available items only
             const summary = await calculateSummary(availableItems, deliveryMethod);
 
-            // ── Step 3: call stored procedure ─────────────────────────────
+            // Call stored procedure — creates order, inserts order items, removes available cart items
             const result = await SaleOrder.placeOrdersFromCart({ memberId, deliveryAddress });
 
             if (result.processedCount === 0) {
@@ -147,21 +125,14 @@ class CheckoutController {
                 });
             }
 
-            // ── Step 4: update order total with discounted amount ──────────
-            // summary.grandTotal is already the correct discounted total
-            // for all available items. Update the single order created by the procedure.
+            // Overwrite raw total with discounted grand total
             await SaleOrder.updateTotalAmount(result.orderId, summary.grandTotal);
-
-            const order = await SaleOrder.findById(result.orderId);
-
-            const skippedNames = unavailableItems.map(i => i.product.name);
 
             return res.status(201).json({
                 success:        true,
-                order,
                 processedCount: result.processedCount,
                 skippedCount:   result.skippedCount,
-                skippedNames,
+                skippedNames:   unavailableItems.map(i => i.product.name),
                 grandTotal:     summary.grandTotal,
                 message: result.skippedCount > 0
                     ? `${result.processedCount} item(s) ordered. ${result.skippedCount} unavailable item(s) remain in your cart.`
