@@ -1,8 +1,9 @@
 // src/controllers/checkoutController.js
 
-const { getCheckoutSummary } = require('../models/Checkout');
-const { getActiveRules }     = require('../models/DiscountEngine');
-const SaleOrder                = require('../models/SaleOrder');
+const { getCheckoutSummary }          = require('../models/Checkout');
+const { getActiveRules, calculateSummary } = require('../models/DiscountEngine');
+const SaleOrder                        = require('../models/SaleOrder');
+const prisma                           = require('../config/prisma');
 
 class CheckoutController {
 
@@ -109,7 +110,6 @@ class CheckoutController {
             }
 
             // ── Step 1: get cart with product info ─────────────────────────
-            const prisma = require('../config/prisma');
             const cart = await prisma.cart.findUnique({
                 where:   { memberId },
                 include: { cartItem: { include: { product: true }, orderBy: { createdAt: 'asc' } } }
@@ -135,7 +135,6 @@ class CheckoutController {
             // Calculate discounts on available items only — unavailable items
             // are excluded so they don't inflate the subtotal used for
             // CART_VALUE and DELIVERY_TIERED thresholds.
-            const { calculateSummary } = require('../models/DiscountEngine');
             const summary = await calculateSummary(availableItems, deliveryMethod);
 
             // ── Step 3: call stored procedure ─────────────────────────────
