@@ -18,6 +18,9 @@ router.post('/items', ensureAuthenticated, CartController.createCartItem);
 // GET /cart/items — retrieve all cart items + summary
 router.get('/items', ensureAuthenticated, CartController.getCartItems);
 
+// GET /cart/summary — cart summary only
+router.get('/summary', ensureAuthenticated, CartController.getCartSummary);
+
 // PUT /cart/items/:cartItemId — update item quantity
 router.put('/items/:cartItemId', ensureAuthenticated, CartController.updateCartItem);
 

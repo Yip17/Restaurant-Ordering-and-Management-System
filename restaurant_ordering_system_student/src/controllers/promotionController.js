@@ -1,17 +1,15 @@
 // controllers/promotionController.js — admin CRUD for discount rules
 
-const prisma = require('../config/prisma');
+const DiscountRule = require('../models/DiscountRule');
 
 const DISCOUNT_TYPES = ['QUANTITY_PRODUCT', 'CART_VALUE', 'DELIVERY_TIERED'];
 
 class PromotionController {
 
+    // GET /api/promotions
     static async list(req, res) {
         try {
-            const rules = await prisma.discountRule.findMany({
-                include: { product: { select: { productId: true, name: true } } },
-                orderBy: [{ discountType: 'asc' }, { thresholdValue: 'asc' }]
-            });
+            const rules = await DiscountRule.findAll();
             return res.json({ success: true, rules });
         } catch (err) {
             console.error('promotionController.list error:', err);
@@ -19,12 +17,10 @@ class PromotionController {
         }
     }
 
+    // GET /api/promotions/products
     static async listProducts(req, res) {
         try {
-            const products = await prisma.product.findMany({
-                select:  { productId: true, name: true },
-                orderBy: { name: 'asc' }
-            });
+            const products = await DiscountRule.findAllProducts();
             return res.json({ success: true, products });
         } catch (err) {
             console.error('promotionController.listProducts error:', err);
@@ -32,6 +28,7 @@ class PromotionController {
         }
     }
 
+    // POST /api/promotions
     static async create(req, res) {
         try {
             const { discountType, thresholdValue, discountPercent, deliveryFee, productId, description, isActive } = req.body;
@@ -50,9 +47,7 @@ class PromotionController {
                 if (!discountPercent || Number(discountPercent) <= 0 || Number(discountPercent) > 100) {
                     return res.status(400).json({ success: false, message: 'Discount % must be between 1 and 100.' });
                 }
-                const existing = await prisma.discountRule.findFirst({
-                    where: { discountType: 'QUANTITY_PRODUCT', productId: parseInt(productId) }
-                });
+                const existing = await DiscountRule.findProductRule(productId);
                 if (existing) {
                     return res.status(400).json({
                         success: false,
@@ -76,17 +71,14 @@ class PromotionController {
                 }
             }
 
-            const rule = await prisma.discountRule.create({
-                data: {
-                    discountType,
-                    thresholdValue:  parseFloat(thresholdValue),
-                    discountPercent: discountType === 'DELIVERY_TIERED' ? 0 : parseFloat(discountPercent || 0),
-                    deliveryFee:     discountType === 'DELIVERY_TIERED' ? parseFloat(deliveryFee) : 0,
-                    productId:       discountType === 'QUANTITY_PRODUCT' ? parseInt(productId) : null,
-                    isActive:        isActive !== undefined ? Boolean(isActive) : true,
-                    description:     description?.trim() || null
-                },
-                include: { product: { select: { productId: true, name: true } } }
+            const rule = await DiscountRule.create({
+                discountType,
+                thresholdValue:  parseFloat(thresholdValue),
+                discountPercent: discountType === 'DELIVERY_TIERED' ? 0 : parseFloat(discountPercent || 0),
+                deliveryFee:     discountType === 'DELIVERY_TIERED' ? parseFloat(deliveryFee) : 0,
+                productId:       discountType === 'QUANTITY_PRODUCT' ? parseInt(productId) : null,
+                isActive:        isActive !== undefined ? Boolean(isActive) : true,
+                description:     description?.trim() || null
             });
 
             return res.status(201).json({ success: true, rule });
@@ -96,6 +88,7 @@ class PromotionController {
         }
     }
 
+    // PUT /api/promotions/:id
     static async update(req, res) {
         try {
             const ruleId = parseInt(req.params.id);
@@ -105,7 +98,7 @@ class PromotionController {
                 return res.status(400).json({ success: false, message: 'Invalid rule ID.' });
             }
 
-            const existing = await prisma.discountRule.findUnique({ where: { ruleId } });
+            const existing = await DiscountRule.findById(ruleId);
             if (!existing) {
                 return res.status(404).json({ success: false, message: 'Promotion not found.' });
             }
@@ -130,15 +123,10 @@ class PromotionController {
                 }
                 data.deliveryFee = parseFloat(deliveryFee);
             }
-            if (description !== undefined) data.description = description?.trim() || null;
+            if (description !== undefined) data.description = description.trim() || null;
             if (isActive !== undefined)    data.isActive = Boolean(isActive);
 
-            const updated = await prisma.discountRule.update({
-                where:   { ruleId },
-                data,
-                include: { product: { select: { productId: true, name: true } } }
-            });
-
+            const updated = await DiscountRule.update(ruleId, data);
             return res.json({ success: true, rule: updated });
         } catch (err) {
             console.error('promotionController.update error:', err);
@@ -146,6 +134,7 @@ class PromotionController {
         }
     }
 
+    // DELETE /api/promotions/:id
     static async remove(req, res) {
         try {
             const ruleId = parseInt(req.params.id);
@@ -153,12 +142,12 @@ class PromotionController {
                 return res.status(400).json({ success: false, message: 'Invalid rule ID.' });
             }
 
-            const existing = await prisma.discountRule.findUnique({ where: { ruleId } });
+            const existing = await DiscountRule.findById(ruleId);
             if (!existing) {
                 return res.status(404).json({ success: false, message: 'Promotion not found.' });
             }
 
-            await prisma.discountRule.delete({ where: { ruleId } });
+            await DiscountRule.remove(ruleId);
             return res.json({ success: true });
         } catch (err) {
             console.error('promotionController.remove error:', err);
