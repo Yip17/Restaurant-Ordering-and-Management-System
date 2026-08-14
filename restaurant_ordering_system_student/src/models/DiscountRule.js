@@ -29,6 +29,20 @@ async function findProductRule(productId) {
     });
 }
 
+// Check if a CART_VALUE rule already exists for the same threshold
+async function findCartValueRule(thresholdValue) {
+    return prisma.discountRule.findFirst({
+        where: { discountType: 'CART_VALUE', thresholdValue: parseFloat(thresholdValue) }
+    });
+}
+
+// Check if a DELIVERY_TIERED rule already exists for the same threshold
+async function findDeliveryTierRule(thresholdValue) {
+    return prisma.discountRule.findFirst({
+        where: { discountType: 'DELIVERY_TIERED', thresholdValue: parseFloat(thresholdValue) }
+    });
+}
+
 // Find one rule by primary key
 async function findById(ruleId) {
     return prisma.discountRule.findUnique({ where: { ruleId } });
@@ -49,4 +63,4 @@ async function remove(ruleId) {
     return prisma.discountRule.delete({ where: { ruleId } });
 }
 
-module.exports = { findAll, findAllProducts, findProductRule, findById, create, update, remove };
+module.exports = { findAll, findAllProducts, findProductRule, findCartValueRule, findDeliveryTierRule, findById, create, update, remove };

@@ -63,11 +63,25 @@ class PromotionController {
                 if (!discountPercent || Number(discountPercent) <= 0 || Number(discountPercent) > 100) {
                     return res.status(400).json({ success: false, message: 'Discount % must be between 1 and 100.' });
                 }
+                const existingTier = await DiscountRule.findCartValueRule(thresholdValue);
+                if (existingTier) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'A cart value discount with this minimum spend already exists. Edit or delete it first.'
+                    });
+                }
             }
 
             if (discountType === 'DELIVERY_TIERED') {
                 if (deliveryFee === undefined || deliveryFee === null || Number(deliveryFee) < 0) {
                     return res.status(400).json({ success: false, message: 'Delivery fee must be 0 or greater.' });
+                }
+                const existingTier = await DiscountRule.findDeliveryTierRule(thresholdValue);
+                if (existingTier) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'A delivery tier with this minimum order value already exists. Edit or delete it first.'
+                    });
                 }
             }
 
