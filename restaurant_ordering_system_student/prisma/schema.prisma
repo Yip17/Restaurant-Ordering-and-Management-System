@@ -52,6 +52,7 @@ model member {
   response         response[]
   saleOrder        saleOrder[]
   cart             cart?
+  discountRule     discountRule[]
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -129,11 +130,13 @@ model discountRule {
   discountPercent Decimal  @default(0) @map("discount_percent") @db.Decimal(5, 2)
   deliveryFee     Decimal  @default(0) @map("delivery_fee") @db.Decimal(10, 2)
   productId       Int?     @map("product_id")
+  createdBy       Int?     @map("created_by")
   isActive        Boolean  @default(true) @map("is_active")
   description     String?  @db.VarChar(255)
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamp(6)
 
   product         product? @relation(fields: [productId], references: [productId], onDelete: SetNull, onUpdate: NoAction)
+  member          member?  @relation(fields: [createdBy], references: [memberId], onDelete: SetNull, onUpdate: NoAction)
 
   @@map("discount_rule")
 }
