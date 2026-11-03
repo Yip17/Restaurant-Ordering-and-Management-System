@@ -14,39 +14,9 @@ class OrderController {
         }
     }
 
-    // POST /orders — place a new order
-    static async create(req, res) {
-        try {
-            const memberId = req.session.userId;
-            const { product_id, quantity = 1, delivery_address } = req.body;
-
-            if (!product_id) {
-                return res.status(400).json({ success: false, message: 'Product is required.' });
-            }
-            if (!delivery_address || !delivery_address.trim()) {
-                return res.status(400).json({ success: false, message: 'Delivery address is required.' });
-            }
-            if (quantity < 1) {
-                return res.status(400).json({ success: false, message: 'Quantity must be at least 1.' });
-            }
-
-            const order = await SaleOrder.create({
-                memberId,
-                productId:       product_id,
-                quantity:        parseInt(quantity),
-                deliveryAddress: delivery_address.trim()
-            });
-
-            res.status(201).json({ success: true, order });
-        } catch (err) {
-            console.error('create order error:', err);
-            const msg = err.message === 'Product not found or unavailable' ? err.message : 'Failed to place order.';
-            res.status(500).json({ success: false, message: msg });
-        }
-    }
-
     // PUT /orders/:id/status — update order status
-    // Member can only cancel their own PACKING orders
+    // Members can only cancel their own PACKING orders.
+    // Admins can set any status.
     static async updateStatus(req, res) {
         try {
             const memberId = req.session.userId;
@@ -58,7 +28,6 @@ class OrderController {
                 return res.status(400).json({ success: false, message: 'Invalid status.' });
             }
 
-            // Members can only cancel — admins handle COMPLETED/PACKING via dashboard
             if (req.session.userRole !== 'ADMIN') {
                 if (status !== 'CANCELLED') {
                     return res.status(403).json({ success: false, message: 'You can only cancel your own orders.' });

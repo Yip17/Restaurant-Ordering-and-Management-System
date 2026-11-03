@@ -26,7 +26,8 @@ function parseDbError(err) {
         PRODUCT_NOT_FOUND:  "Product not found or unavailable.",
         INVALID_QUANTITY:   "Quantity must be at least 1.",
         INVALID_STATUS:     "Invalid order status.",
-        BLANK_ADDRESS:      "Delivery address cannot be empty."
+        BLANK_ADDRESS:      "Delivery address cannot be empty.",
+        CART_NOT_FOUND:     "Cart not found."
     };
 
     for (let code in codes) {
@@ -87,6 +88,40 @@ class SaleOrder {
             }
             throw err;
         }
+    }
+
+    // Place orders from cart — CALL place_orders($1,$2,NULL,NULL,NULL)
+    // Matches the 5-parameter signature: (member_id, delivery_address, OUT order_id, OUT processed, OUT skipped)
+    // Returns { orderId, processedCount, skippedCount }
+    static async placeOrdersFromCart({ memberId, deliveryAddress }) {
+        try {
+            const result = await pool.query(
+                'CALL place_orders($1, $2, NULL, NULL, NULL)',
+                [memberId, deliveryAddress]
+            );
+            const row = result.rows[0];
+            return {
+                orderId:       row.p_order_id,
+                processedCount: row.p_processed_count || 0,
+                skippedCount:  row.p_skipped_count  || 0
+            };
+        } catch (err) {
+            const clean = parseDbError(err);
+            if (clean) {
+                const error = new Error(clean);
+                error.userFacing = true;
+                throw error;
+            }
+            throw err;
+        }
+    }
+
+    // Update a sale_order's total_amount after discount calculation
+    static async updateTotalAmount(orderId, totalAmount) {
+        await pool.query(
+            'UPDATE sale_order SET total_amount = $1 WHERE order_id = $2',
+            [totalAmount, orderId]
+        );
     }
 
     // Update order status — CALL update_order_status($1,$2)

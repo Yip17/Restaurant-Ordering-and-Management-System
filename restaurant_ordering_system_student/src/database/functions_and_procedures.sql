@@ -429,6 +429,114 @@ $$;
 
 
 -- -----------------------------------------------------------------------------
+-- place_orders
+-- Processes all items in a member's cart into a single sale order.
+--
+-- Transaction handling:
+--   Each cart item runs inside a subtransaction (BEGIN…EXCEPTION block).
+--   Available items complete and persist; unavailable items raise NO_DATA_FOUND
+--   via STRICT select, rolling back only that subtransaction while previously
+--   processed items are preserved in the outer transaction.
+--
+-- Validates:
+--   • member exists
+--   • cart exists for member
+--   • delivery address is not blank
+--
+-- OUT p_order_id        — ID of the created sale_order, or NULL if none.
+-- OUT p_processed_count — number of cart items converted to order items.
+-- OUT p_skipped_count   — number of cart items skipped (unavailable).
+--
+-- PgAdmin: CALL place_orders(2, '123 Main St', NULL, NULL, NULL);
+-- App:     CALL place_orders($1, $2, NULL, NULL, NULL)
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE PROCEDURE place_orders(
+    IN  p_member_id        INTEGER,
+    IN  p_delivery_address TEXT,
+    OUT p_order_id         INTEGER,
+    OUT p_processed_count  INTEGER,
+    OUT p_skipped_count    INTEGER
+)
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_cart_id    INTEGER;
+    v_item       RECORD;
+    v_unit_price NUMERIC;
+    v_subtotal   NUMERIC;
+BEGIN
+    p_order_id        := NULL;
+    p_processed_count := 0;
+    p_skipped_count   := 0;
+
+    IF NOT EXISTS (SELECT 1 FROM member m WHERE m.member_id = p_member_id) THEN
+        RAISE EXCEPTION 'MEMBER_NOT_FOUND: Member % does not exist.', p_member_id;
+    END IF;
+
+    IF p_delivery_address IS NULL OR TRIM(p_delivery_address) = '' THEN
+        RAISE EXCEPTION 'BLANK_ADDRESS: Delivery address cannot be empty.';
+    END IF;
+
+    SELECT c.cart_id INTO v_cart_id
+      FROM cart c
+     WHERE c.member_id = p_member_id;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'CART_NOT_FOUND: Cart not found for member %.', p_member_id;
+    END IF;
+
+    FOR v_item IN
+        SELECT ci.cart_item_id, ci.product_id, ci.quantity
+          FROM cart_item ci
+         WHERE ci.cart_id = v_cart_id
+         ORDER BY ci.cart_item_id
+    LOOP
+        BEGIN
+            -- STRICT select raises NO_DATA_FOUND when product is missing or unavailable
+            -- Process this cart item.
+            -- This BEGIN ... EXCEPTION block acts as a subtransaction.
+            -- If an exception occurs, PostgreSQL automatically rolls back
+            -- all changes made inside this block.
+            SELECT p.price
+              INTO STRICT v_unit_price
+              FROM product p
+             WHERE p.product_id = v_item.product_id
+               AND COALESCE(p.is_available, FALSE) IS TRUE;
+
+            v_subtotal := v_unit_price * v_item.quantity;
+
+            IF p_order_id IS NULL THEN
+                INSERT INTO sale_order (member_id, total_amount, status, delivery_address)
+                VALUES (p_member_id, v_subtotal, 'PACKING', TRIM(p_delivery_address))
+                RETURNING order_id INTO p_order_id;
+            ELSE
+                UPDATE sale_order
+                   SET total_amount = total_amount + v_subtotal
+                 WHERE order_id = p_order_id;
+            END IF;
+
+            INSERT INTO sale_order_item (order_id, product_id, quantity, unit_price, subtotal)
+            VALUES (p_order_id, v_item.product_id, v_item.quantity, v_unit_price, v_subtotal);
+
+            DELETE FROM cart_item WHERE cart_item_id = v_item.cart_item_id;
+
+            p_processed_count := p_processed_count + 1;
+
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+            -- The item is unavailable.
+            -- PostgreSQL has automatically rolled back this item's
+            -- changes. The item therefore remains in the cart.
+            --
+            -- Previously successful cart items are NOT rolled back
+            -- because they were processed in earlier completed blocks.
+                p_skipped_count := p_skipped_count + 1;
+        END;
+    END LOOP;
+END;
+$$;
+
+
+-- -----------------------------------------------------------------------------
 -- update_order_status
 -- Updates the status of an existing order.
 --

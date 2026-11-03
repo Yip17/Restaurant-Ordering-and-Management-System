@@ -13,10 +13,7 @@ router.get('/my-orders', ensureAuthenticated, (req, res) => {
 // GET /orders/my — JSON: logged-in member's orders
 router.get('/my', ensureAuthenticated, OrderController.myOrders);
 
-// POST /orders — place a new order
-router.post('/', ensureAuthenticated, OrderController.create);
-
-// PUT /orders/:id/status — update order status
+// PUT /orders/:id/status — update order status (cancel by member, any status by admin)
 router.put('/:id/status', ensureAuthenticated, OrderController.updateStatus);
 
 module.exports = router;

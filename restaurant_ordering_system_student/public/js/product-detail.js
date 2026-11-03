@@ -60,11 +60,11 @@ async function fetchProductDetail() {
   }
 
   detail.style.display = 'block';
-  document.getElementById('order-form').addEventListener('submit', handleOrderSubmit);
+  document.getElementById('order-form').addEventListener('submit', handleAddToCart);
   await loadFeedbackSection();
 }
 
-async function handleOrderSubmit(e) {
+async function handleAddToCart(e) {
   e.preventDefault();
   const successEl = document.getElementById('order-success');
   const errorEl   = document.getElementById('order-error');
@@ -73,26 +73,26 @@ async function handleOrderSubmit(e) {
   successEl.style.display = 'none';
   errorEl.style.display   = 'none';
   btn.disabled    = true;
-  btn.textContent = 'Placing order…';
+  btn.textContent = 'Adding…';
 
-  const result = await apiFetch('/orders', 'POST', {
-    product_id:       currentProductId,
-    quantity:         parseInt(document.getElementById('quantity').value),
-    delivery_address: document.getElementById('delivery-address').value.trim()
+  const result = await apiFetch('/cart/items', 'POST', {
+    product_id: currentProductId,
+    quantity:   parseInt(document.getElementById('quantity').value)
   });
 
   if (result.success) {
-    successEl.innerHTML = `Order placed! Status: <strong>PACKING</strong>.
-      <a href="/orders/my-orders" class="alert-link ms-2">View My Orders →</a>`;
+    successEl.innerHTML =
+      `Added to cart! <a href="/cart/retrieve/all" class="alert-link ms-2">View Cart →</a>`;
     successEl.style.display = 'block';
     document.getElementById('order-form').reset();
+    document.getElementById('quantity').value = 1;
   } else {
-    errorEl.textContent   = result.message || 'Failed to place order.';
+    errorEl.textContent   = result.message || 'Failed to add to cart.';
     errorEl.style.display = 'block';
   }
 
   btn.disabled    = false;
-  btn.textContent = 'Order Now';
+  btn.textContent = 'Add to Cart';
 }
 
 async function loadFeedbackSection() {
